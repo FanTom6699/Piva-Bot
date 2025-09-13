@@ -1,16 +1,21 @@
+import os
 import telebot
 import random
 import time
 import sqlite3
 
-TOKEN = "ТОКЕН_ТВОЕГО_БОТА"
+# Получаем токен из переменных окружения
+TOKEN = os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("❌ BOT_TOKEN не найден! Установи его в переменных окружения.")
+
 bot = telebot.TeleBot(TOKEN)
 
 # Подключение к SQLite
 conn = sqlite3.connect("beer.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# Создаём таблицу, если её нет
+# Создание таблицы
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -21,12 +26,10 @@ CREATE TABLE IF NOT EXISTS users (
 """)
 conn.commit()
 
-# Ограничение (3 часа = 10800 секунд)
-COOLDOWN = 3 * 60 * 60
-
+COOLDOWN = 3 * 60 * 60  # 3 часа
 
 def get_user(user_id, username):
-    """Получить пользователя из БД, если нет — создать"""
+    """Получить или создать игрока"""
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
     if not user:
@@ -47,7 +50,7 @@ def beer_game(message):
     balance = user[2]
     last_used = user[3]
 
-    # Проверяем кулдаун
+    # Проверка кулдауна
     if now - last_used < COOLDOWN:
         remaining = int(COOLDOWN - (now - last_used))
         hours = remaining // 3600
@@ -66,7 +69,7 @@ def beer_game(message):
         balance += value
         text = f"😏🍻 Ты успешно бахнул!\nСливочное пиво: +{value}\n📊 Баланс: {balance}"
 
-    # Обновляем данные в базе
+    # Обновляем БД
     cursor.execute("UPDATE users SET balance = ?, last_used = ?, username = ? WHERE user_id = ?",
                    (balance, now, username, user_id))
     conn.commit()
@@ -90,5 +93,15 @@ def show_rating(message):
     bot.reply_to(message, text)
 
 
-print("Бот запущен...")
+@bot.message_handler(commands=['mybeer'])
+def my_beer(message):
+    user_id = message.from_user.id
+    username = message.from_user.first_name
+    user = get_user(user_id, username)
+    balance = user[2]
+
+    bot.reply_to(message, f"🍺 {username}, твой баланс: {balance}")
+
+
+print("✅ Бот запущен...")
 bot.polling(none_stop=True)
