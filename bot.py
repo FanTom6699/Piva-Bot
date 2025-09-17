@@ -1,107 +1,101 @@
+import logging
 import os
-import telebot
 import random
 import time
-import sqlite3
+from aiogram import Bot, Dispatcher, executor, types
+from dotenv import load_dotenv
+from database import init_db
 
-# Получаем токен из переменных окружения
-TOKEN = os.environ.get("6711143584:AAGDrBrQek_q4X2s_iONkQmEafuk-b6SkrM")
-if not TOKEN:
-    raise ValueError("❌ BOT_TOKEN не найден! Установи его в переменных окружения.")
+# Логирование
+logging.basicConfig(level=logging.INFO)
 
-bot = telebot.TeleBot(TOKEN)
+# Загружаем токен
+load_dotenv()
+BOT_TOKEN = os.getenv("6711143584:AAGDrBrQek_q4X2s_iONkQmEafuk-b6SkrM")
 
-# Подключение к SQLite
-conn = sqlite3.connect("beer.db", check_same_thread=False)
-cursor = conn.cursor()
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN не найден! Укажи его в .env")
 
-# Создание таблицы
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT,
-    balance INTEGER DEFAULT 0,
-    last_used REAL DEFAULT 0
-)
-""")
-conn.commit()
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(bot)
 
-COOLDOWN = 3 * 60 * 60  # 3 часа
+# БД
+conn = init_db()
+cur = conn.cursor()
 
-def get_user(user_id, username):
-    """Получить или создать игрока"""
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
-    if not user:
-        cursor.execute("INSERT INTO users (user_id, username, balance, last_used) VALUES (?, ?, ?, ?)",
-                       (user_id, username, 0, 0))
+COOLDOWN = 3 * 60 * 60  # 3 часа в секундах
+
+# /start
+@dp.message_handler(commands=["start"])
+async def start_command(message: types.Message):
+    telegram_id = str(message.from_user.id)
+    username = message.from_user.username or message.from_user.first_name
+
+    cur.execute("SELECT * FROM players WHERE telegram_id = ?", (telegram_id,))
+    player = cur.fetchone()
+
+    if not player:
+        cur.execute("INSERT INTO players (telegram_id, username) VALUES (?, ?)", (telegram_id, username))
         conn.commit()
-        return (user_id, username, 0, 0)
-    return user
+        await message.answer(f"👋 Привет, {username}!\nТы зарегистрирован.")
+    else:
+        await message.answer(f"👋 С возвращением, {username}! Ты уже есть в базе.")
 
+# /beer
+@dp.message_handler(commands=["beer"])
+async def beer_command(message: types.Message):
+    telegram_id = str(message.from_user.id)
+    username = message.from_user.username or message.from_user.first_name
 
-@bot.message_handler(commands=['beer'])
-def beer_game(message):
-    user_id = message.from_user.id
-    username = message.from_user.first_name
-    now = time.time()
+    cur.execute("SELECT beer_points, last_beer FROM players WHERE telegram_id = ?", (telegram_id,))
+    player = cur.fetchone()
 
-    user = get_user(user_id, username)
-    balance = user[2]
-    last_used = user[3]
-
-    # Проверка кулдауна
-    if now - last_used < COOLDOWN:
-        remaining = int(COOLDOWN - (now - last_used))
-        hours = remaining // 3600
-        minutes = (remaining % 3600) // 60
-        seconds = remaining % 60
-        bot.reply_to(message, f"⏳ Жди ещё {hours:02}:{minutes:02}:{seconds:02} до следующего пива!")
+    if not player:
+        await message.answer("❌ Сначала напиши /start, чтобы зарегистрироваться.")
         return
 
-    # Событие
-    if random.choice([True, False]):
-        value = random.randint(1, 10)
-        balance -= value
-        text = f"🤬🍻 Братья Уизли отжали твоё пиво!\nСливочное пиво: -{value}\n📊 Баланс: {balance}"
-    else:
-        value = random.randint(1, 10)
-        balance += value
-        text = f"😏🍻 Ты успешно бахнул!\nСливочное пиво: +{value}\n📊 Баланс: {balance}"
+    beer_points, last_beer = player
+    now = int(time.time())
 
-    # Обновляем БД
-    cursor.execute("UPDATE users SET balance = ?, last_used = ?, username = ? WHERE user_id = ?",
-                   (balance, now, username, user_id))
+    # проверка кулдауна
+    if now - last_beer < COOLDOWN:
+        remaining = COOLDOWN - (now - last_beer)
+        h = remaining // 3600
+        m = (remaining % 3600) // 60
+        s = remaining % 60
+        await message.answer(f"⌛ Ты уже пил недавно! Попробуй снова через {h:02d}:{m:02d}:{s:02d}.")
+        return
+
+    # определяем плюс или минус
+    if random.choice([True, False]):
+        change = random.randint(1, 10)
+        text = f"😏🍻 Ты успешно бахнул!\nСливочное пиво: **+{change}**"
+    else:
+        change = -random.randint(1, 10)
+        text = f"🤬🍻 Братья Уизли отжали твоё пиво!\nСливочное пиво: **{change}**"
+
+    beer_points += change
+    cur.execute("UPDATE players SET beer_points = ?, last_beer = ? WHERE telegram_id = ?", (beer_points, now, telegram_id))
     conn.commit()
 
-    bot.reply_to(message, text)
+    await message.answer(f"{text}\n\n🏆 Твой счёт: {beer_points}")
 
-
-@bot.message_handler(commands=['rating'])
-def show_rating(message):
-    cursor.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10")
-    top_players = cursor.fetchall()
+# /top
+@dp.message_handler(commands=["top"])
+async def top_command(message: types.Message):
+    cur.execute("SELECT username, beer_points FROM players ORDER BY beer_points DESC LIMIT 10")
+    top_players = cur.fetchall()
 
     if not top_players:
-        bot.reply_to(message, "📉 Пока никто не бахал пива!")
+        await message.answer("❌ Пока нет игроков в рейтинге.")
         return
 
-    text = "🏆 ТОП-10 по пиву 🍺\n\n"
-    for i, (username, balance) in enumerate(top_players, start=1):
-        text += f"{i}. {username} — {balance}\n"
+    text = "🏆 Топ-10 любителей пива:\n\n"
+    for i, (username, points) in enumerate(top_players, start=1):
+        name = username or "Безымянный"
+        text += f"{i}. {name} — {points} очков\n"
 
-    bot.reply_to(message, text)
+    await message.answer(text)
 
-
-@bot.message_handler(commands=['mybeer'])
-def my_beer(message):
-    user_id = message.from_user.id
-    username = message.from_user.first_name
-    user = get_user(user_id, username)
-    balance = user[2]
-
-    bot.reply_to(message, f"🍺 {username}, твой баланс: {balance}")
-
-
-print("✅ Бот запущен...")
-bot.polling(none_stop=True)
+if __name__ == "__main__":
+    executor.start_polling(dp, skip_updates=True)
