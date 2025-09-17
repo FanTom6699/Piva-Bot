@@ -5,7 +5,7 @@ import time
 import sqlite3
 
 # Получаем токен из переменных окружения
-TOKEN = os.environ.get("BOT_TOKEN")
+TOKEN = os.environ.get("6711143584:AAGDrBrQek_q4X2s_iONkQmEafuk-b6SkrM")
 if not TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден! Установи его в переменных окружения.")
 
