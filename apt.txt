@@ -1,4 +1,3 @@
-libaiohttp-dev
+build-essential
 libffi-dev
 libssl-dev
-build-essential
