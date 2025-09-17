@@ -4,3 +4,4 @@ aiodns==3.0.0
 cchardet==2.1.7
 Babel==2.12.1
 python-dotenv==1.0.0
+cchardet==2.1.7
