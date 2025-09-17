@@ -4,7 +4,7 @@ services:
     env: python
     buildCommand: "pip install --upgrade pip && pip install -r requirements.txt" # Обновим команду сборки
     startCommand: "python bot.py"
-    pythonVersion: 3.11 # Используем стабильную версию Python
+    pythonVersion: 3.10 # Используем стабильную версию Python
     envVars:
       - key: BOT_TOKEN
         sync: false       # Это указывает, что значение будет браться из вашего дашборда Render
