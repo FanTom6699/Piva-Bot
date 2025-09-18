@@ -6,7 +6,7 @@ import random
 import time
 from datetime import timedelta
 
-from aiogram import Bot, Dispatcher, Router, F
+from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
@@ -101,9 +101,10 @@ async def cmd_profile(message: Message):
     if user_data:
         username, rating = user_data
         await message.answer(
-            f"👤 **Твой профиль:**\n\n"
-            f"Имя: **{username}**\n"
-            f"Рейтинг: **{rating}** 🍺"
+            f"👤 <b>Твой профиль:</b>\n\n"
+            f"Имя: <b>{username}</b>\n"
+            f"Рейтинг: <b>{rating}</b> 🍺",
+            parse_mode="HTML"
         )
     else:
         await message.answer("Ты еще не зарегистрирован. Нажми /start, чтобы начать игру.")
@@ -132,7 +133,10 @@ async def cmd_beer(message: Message):
     if time_passed < COOLDOWN_SECONDS:
         time_left = COOLDOWN_SECONDS - time_passed
         time_left_formatted = str(timedelta(seconds=time_left))
-        await message.answer(f"Ты уже недавно пил! ⏳\nПопробуй снова через: **{time_left_formatted}**")
+        await message.answer(
+            f"Ты уже недавно пил! ⏳\nПопробуй снова через: <b>{time_left_formatted}</b>",
+            parse_mode="HTML"
+        )
         conn.close()
         return
 
@@ -141,12 +145,22 @@ async def cmd_beer(message: Message):
         # Успех
         rating_change = random.randint(1, 10)
         new_rating = rating + rating_change
-        await message.answer(f"😏🍻 Ты успешно бахнул! Твой рейтинг увеличен на **+{rating_change}**.")
+        await message.answer(
+            f"😏🍻 Ты успешно бахнул!\n\n"
+            f"Получено: <b>+{rating_change}</b> 🍺\n"
+            f"Твой новый рейтинг: <b>{new_rating}</b>",
+            parse_mode="HTML"
+        )
     else:
         # Неудача
-        rating_change = -random.randint(1, 10)
+        lost_beer = random.randint(1, 10)
+        rating_change = -lost_beer
         new_rating = rating + rating_change
-        await message.answer(f"🤬🍻 Братья Уизли отжали твоё пиво! Твой рейтинг уменьшен на **{rating_change}**.")
+        await message.answer(
+            f"🤬🍻 Братья Уизли отжали у тебя <b>{lost_beer}</b> 🍺 пива!\n\n"
+            f"Твой новый рейтинг: <b>{new_rating}</b>",
+            parse_mode="HTML"
+        )
     
     cursor.execute(
         "UPDATE users SET rating = ?, last_beer_time = ? WHERE user_id = ?",
@@ -167,17 +181,17 @@ async def cmd_top(message: Message):
     conn.close()
 
     if not top_users:
-        await message.answer("В баре пока никого нет, ты можешь стать первым! 썰")
+        await message.answer("В баре пока никого нет, ты можешь стать первым! 🍻")
         return
 
-    response_text = "🏆 **Топ-10 лучших пивохлёбов:**\n\n"
+    response_text = "🏆 <b>Топ-10 лучших пивохлёбов:</b>\n\n"
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     
     for i, (username, rating) in enumerate(top_users, 1):
-        place_icon = medals.get(i, f"**{i}.**")
-        response_text += f"{place_icon} {username} — **{rating}** 🍺\n"
+        place_icon = medals.get(i, f"<b>{i}.</b>")
+        response_text += f"{place_icon} {username} — <b>{rating}</b> 🍺\n"
         
-    await message.answer(response_text)
+    await message.answer(response_text, parse_mode="HTML")
 
 
 async def main():
