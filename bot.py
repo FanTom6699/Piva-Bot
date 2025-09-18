@@ -6,32 +6,36 @@ import random
 import time
 from datetime import timedelta
 
-from aiogram import Bot, Dispatcher, Router, F
+from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
 
 # --- Конфигурация ---
-load_dotenv()
+load_dotenv()  # Загружаем переменные из .env файла для локального запуска
 
+# Ищем переменную по её ИМЕНИ "BOT_TOKEN"
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# ЕСЛИ токен НЕ НАЙДЕН (None), ТОГДА завершаем работу с ошибкой
 if not BOT_TOKEN:
-    raise ValueError("Не найден BOT_TOKEN. Проверьте переменные окружения.")
+    raise ValueError("Не найден BOT_TOKEN. Проверьте переменные окружения (.env или настройки хостинга).")
 
+# Если токен найден, код продолжает работать дальше
 DB_FILE = 'beer_game.db'
-COOLDOWN_SECONDS = 3 * 60 * 60
+COOLDOWN_SECONDS = 3 * 60 * 60  # 3 часа
 
-# --- File IDs для изображений (ВАЖНО: ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ!) ---
-# Получите эти ID, отправив картинки @RawDataBot или похожему боту
+# --- File IDs для изображений ---
 SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ"       # Картинка для успешного "бахнул!"
 FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE"         # Картинка для неудачного "отжали пиво!"
 COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAICxWjMNXRNIOw6PJstVS2P6oFnW6wHAAJF-TEbLqthShzwv65k4n-MAQADAgADeQADNgQ"    # Картинка для сообщения о кулдауне
 TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ"         # Картинка для топа игроков
 
-
+# Настройка логирования для отладки
 logging.basicConfig(level=logging.INFO)
 
+# --- Инициализация ---
+# Создаем объекты роутера и диспетчера
 router = Router()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -39,6 +43,7 @@ dp = Dispatcher()
 # --- Управление базой данных ---
 
 def init_db():
+    """Инициализирует базу данных и создает таблицу, если её нет."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('''
@@ -53,27 +58,20 @@ def init_db():
     conn.close()
     logging.info("База данных успешно инициализирована.")
 
-# --- ВРЕМЕННАЯ КОМАНДА ДЛЯ ПОЛУЧЕНИЯ FILE ID ---
-# После того как получите все ID, этот блок можно удалить
-@router.message(Command("getid"))
-async def cmd_getid(message: Message):
-    await message.reply("Отправьте мне фото, чтобы получить его File ID.")
-
-@router.message(F.photo)
-async def photo_handler(message: Message):
-    photo_id = message.photo[-1].file_id
-    await message.reply(f"File ID этого фото:\n`{photo_id}`")
-# --- КОНЕЦ ВРЕМЕННОГО БЛОКА ---
-
+# --- Обработчики команд ---
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
+    """Обработчик команды /start. Регистрирует нового пользователя."""
     user_id = message.from_user.id
     username = message.from_user.full_name
+
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+
     cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
     user_exists = cursor.fetchone()
+
     if not user_exists:
         cursor.execute(
             "INSERT INTO users (user_id, username, rating, last_beer_time) VALUES (?, ?, ?, ?)",
@@ -82,21 +80,30 @@ async def cmd_start(message: Message):
         conn.commit()
         await message.answer(
             f"Добро пожаловать в бар, {username}! 🍻\n\n"
-            "Используй команду /beer, чтобы испытать удачу!"
+            "Здесь мы соревнуемся, кто больше выпьет пива.\n"
+            "Используй команду /beer, чтобы испытать удачу!\n"
+            "Проверить свой профиль: /profile\n"
+            "Посмотреть на лучших: /top"
         )
     else:
-        await message.answer(f"С возвращением, {username}! 🍻")
+        await message.answer(f"С возвращением, {username}! Рады снова видеть тебя в баре. 🍻")
+
     conn.close()
 
 
 @router.message(Command("profile"))
 async def cmd_profile(message: Message):
+    """Обработчик команды /profile. Показывает профиль пользователя."""
     user_id = message.from_user.id
+    
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
     cursor.execute("SELECT username, rating FROM users WHERE user_id = ?", (user_id,))
     user_data = cursor.fetchone()
+    
     conn.close()
+    
     if user_data:
         username, rating = user_data
         await message.answer(
@@ -106,15 +113,18 @@ async def cmd_profile(message: Message):
             parse_mode="HTML"
         )
     else:
-        await message.answer("Ты еще не зарегистрирован. Нажми /start.")
+        await message.answer("Ты еще не зарегистрирован. Нажми /start, чтобы начать игру.")
 
 
 @router.message(Command("beer"))
 async def cmd_beer(message: Message):
+    """Обработчик команды /beer. Основная игровая механика."""
     user_id = message.from_user.id
     current_time = int(time.time())
+
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
     cursor.execute("SELECT rating, last_beer_time FROM users WHERE user_id = ?", (user_id,))
     user_data = cursor.fetchone()
 
@@ -124,6 +134,7 @@ async def cmd_beer(message: Message):
         return
 
     rating, last_beer_time = user_data
+    
     time_passed = current_time - last_beer_time
     if time_passed < COOLDOWN_SECONDS:
         time_left = COOLDOWN_SECONDS - time_passed
@@ -136,7 +147,9 @@ async def cmd_beer(message: Message):
         conn.close()
         return
 
+    # 50/50 шанс на успех или неудачу
     if random.choice([True, False]):
+        # Успех
         rating_change = random.randint(1, 10)
         new_rating = rating + rating_change
         await message.answer_photo(
@@ -145,7 +158,8 @@ async def cmd_beer(message: Message):
             parse_mode="HTML"
         )
     else:
-        rating_change = -random.randint(1, 10)
+        # Неудача
+        rating_change = -random.randint(1, 10) # rating_change будет отрицательным
         new_rating = rating + rating_change
         await message.answer_photo(
             photo=FAIL_IMAGE_ID,
@@ -163,8 +177,10 @@ async def cmd_beer(message: Message):
 
 @router.message(Command("top"))
 async def cmd_top(message: Message):
+    """Обработчик команды /top. Показывает топ-10 игроков."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+
     cursor.execute("SELECT username, rating FROM users ORDER BY rating DESC LIMIT 10")
     top_users = cursor.fetchall()
     conn.close()
@@ -178,7 +194,6 @@ async def cmd_top(message: Message):
     
     for i, (username, rating) in enumerate(top_users, 1):
         place_icon = medals.get(i, f"<b>{i}.</b>")
-        # ИСПРАВЛЕНИЕ ЗДЕСЬ:
         response_text += f"{place_icon} {username} — <b>{rating}</b> 🍺\n"
         
     await message.answer_photo(
@@ -189,7 +204,8 @@ async def cmd_top(message: Message):
 
 
 async def main():
-    init_db()
+    """Главная функция для запуска бота."""
+    init_db()  # Убедимся, что БД и таблицы созданы
     dp.include_router(router)
     await dp.start_polling(bot)
 
