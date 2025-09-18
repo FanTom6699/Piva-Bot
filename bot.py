@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 # --- Конфигурация ---
 load_dotenv()  # Загружаем переменные из .env файла для локального запуска
-BOT_TOKEN = os.getenv("6711143584:AAFIOauRcHHAfhP_RTbAjeLPoc2sgF1AiYE")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 raise ValueError("Не найден BOT_TOKEN. Проверьте переменные окружения (.env или настройки хостинга).")
 DB_FILE = 'beer_game.db'
 COOLDOWN_SECONDS = 3 * 60 * 60  # 3 часа
