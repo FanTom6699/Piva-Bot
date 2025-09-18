@@ -27,10 +27,10 @@ COOLDOWN_SECONDS = 3 * 60 * 60  # 3 часа
 
 # --- File IDs для изображений (ВАЖНО: ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ!) ---
 # Получите эти ID, отправив картинки @RawDataBot или похожему боту
-SUCCESS_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_УСПЕХА"       # Картинка для успешного "бахнул!"
-FAIL_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_НЕУДАЧИ"         # Картинка для неудачного "отжали пиво!"
-COOLDOWN_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_ОЖИДАНИЯ"    # Картинка для сообщения о кулдауне
-TOP_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_РЕЙТИНГА"         # Картинка для топа игроков
+SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAE7RhNoy3mtHS_htKXAn3IbDwWd-h2lYQACbfIxGxW1YUq0_SzDnrjbjwEAAwIAA3kAAzYE"       # Картинка для успешного "бахнул!"
+FAIL_IMAGE_ID = "AgACAgIAAxkBAAE7RhZoy3o_4reUDml6pZHO9UhL0HNEgwACcvIxGxW1YUp50kRQuOHYXQEAAwIAA3kAAzYE"         # Картинка для неудачного "отжали пиво!"
+COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAE7TUBozC13Ufm8h-FaqtfXmDf-Q2wk_gACRfkxGy6rYUq-T0t5tZO1rAEAAwIAA3kAAzYE"    # Картинка для сообщения о кулдауне
+TOP_IMAGE_ID = "AgACAgIAAxkBAAE7TTpozC1YlSg_3GxjdtRYJBZZIicJ_gACQvkxGy6rYUoZ8xwiFk0lVwEAAwIAA3kAAzYE"         # Картинка для топа игроков
 
 # Настройка логирования для отладки
 logging.basicConfig(level=logging.INFO)
