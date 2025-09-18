@@ -146,19 +146,15 @@ async def cmd_beer(message: Message):
         rating_change = random.randint(1, 10)
         new_rating = rating + rating_change
         await message.answer(
-            f"😏🍻 Ты успешно бахнул!\n\n"
-            f"Получено: <b>+{rating_change}</b> 🍺\n"
-            f"Твой новый рейтинг: <b>{new_rating}</b>",
+            f"😏🍻 Ты успешно бахнул на <b>+{rating_change}</b> 🍺 пива!",
             parse_mode="HTML"
         )
     else:
         # Неудача
-        lost_beer = random.randint(1, 10)
-        rating_change = -lost_beer
+        rating_change = -random.randint(1, 10) # rating_change будет отрицательным
         new_rating = rating + rating_change
         await message.answer(
-            f"🤬🍻 Братья Уизли отжали у тебя <b>{lost_beer}</b> 🍺 пива!\n\n"
-            f"Твой новый рейтинг: <b>{new_rating}</b>",
+            f"🤬🍻 Братья Уизли отжали у тебя <b>{rating_change}</b> 🍺 пива!",
             parse_mode="HTML"
         )
     
