@@ -25,6 +25,13 @@ if not BOT_TOKEN:
 DB_FILE = 'beer_game.db'
 COOLDOWN_SECONDS = 3 * 60 * 60  # 3 часа
 
+# --- File IDs для изображений (ВАЖНО: ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ!) ---
+# Получите эти ID, отправив картинки @RawDataBot или похожему боту
+SUCCESS_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_УСПЕХА"       # Картинка для успешного "бахнул!"
+FAIL_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_НЕУДАЧИ"         # Картинка для неудачного "отжали пиво!"
+COOLDOWN_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_ОЖИДАНИЯ"    # Картинка для сообщения о кулдауне
+TOP_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_РЕЙТИНГА"         # Картинка для топа игроков
+
 # Настройка логирования для отладки
 logging.basicConfig(level=logging.INFO)
 
@@ -133,8 +140,9 @@ async def cmd_beer(message: Message):
     if time_passed < COOLDOWN_SECONDS:
         time_left = COOLDOWN_SECONDS - time_passed
         time_left_formatted = str(timedelta(seconds=time_left))
-        await message.answer(
-            f"Ты уже недавно пил! ⏳\nПопробуй снова через: <b>{time_left_formatted}</b>",
+        await message.answer_photo(
+            photo=COOLDOWN_IMAGE_ID,
+            caption=f"Ты уже недавно пил! ⏳\nПопробуй снова через: <b>{time_left_formatted}</b>",
             parse_mode="HTML"
         )
         conn.close()
@@ -145,16 +153,18 @@ async def cmd_beer(message: Message):
         # Успех
         rating_change = random.randint(1, 10)
         new_rating = rating + rating_change
-        await message.answer(
-            f"😏🍻 Ты успешно бахнул на <b>+{rating_change}</b> 🍺 пива!",
+        await message.answer_photo(
+            photo=SUCCESS_IMAGE_ID,
+            caption=f"😏🍻 Ты успешно бахнул на <b>+{rating_change}</b> 🍺 пива!",
             parse_mode="HTML"
         )
     else:
         # Неудача
         rating_change = -random.randint(1, 10) # rating_change будет отрицательным
         new_rating = rating + rating_change
-        await message.answer(
-            f"🤬🍻 Братья Уизли отжали у тебя <b>{rating_change}</b> 🍺 пива!",
+        await message.answer_photo(
+            photo=FAIL_IMAGE_ID,
+            caption=f"🤬🍻 Братья Уизли отжали у тебя <b>{rating_change}</b> 🍺 пива!",
             parse_mode="HTML"
         )
     
@@ -187,7 +197,11 @@ async def cmd_top(message: Message):
         place_icon = medals.get(i, f"<b>{i}.</b>")
         response_text += f"{place_icon} {username} — <b>{rating}</b> 🍺\n"
         
-    await message.answer(response_text, parse_mode="HTML")
+    await message.answer_photo(
+        photo=TOP_IMAGE_ID,
+        caption=response_text,
+        parse_mode="HTML"
+    )
 
 
 async def main():
