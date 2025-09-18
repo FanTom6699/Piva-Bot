@@ -24,10 +24,10 @@ COOLDOWN_SECONDS = 3 * 60 * 60
 
 # --- File IDs для изображений (ВАЖНО: ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ!) ---
 # Получите эти ID, отправив картинки @RawDataBot или похожему боту
-SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAE7RhNoy3mtHS_htKXAn3IbDwWd-h2lYQACbfIxGxW1YUq0_SzDnrjbjwEAAwIAA3kAAzYE"       # Картинка для успешного "бахнул!"
-FAIL_IMAGE_ID = "AgACAgIAAxkBAAE7RhZoy3o_4reUDml6pZHO9UhL0HNEgwACcvIxGxW1YUp50kRQuOHYXQEAAwIAA3kAAzYE"         # Картинка для неудачного "отжали пиво!"
-COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAE7TUBozC13Ufm8h-FaqtfXmDf-Q2wk_gACRfkxGy6rYUq-T0t5tZO1rAEAAwIAA3kAAzYE"    # Картинка для сообщения о кулдауне
-TOP_IMAGE_ID = "AgACAgIAAxkBAAE7TTpozC1YlSg_3GxjdtRYJBZZIicJ_gACQvkxGy6rYUoZ8xwiFk0lVwEAAwIAA3kAAzYE"         # Картинка для топа игроков
+SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ"       # Картинка для успешного "бахнул!"
+FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE"         # Картинка для неудачного "отжали пиво!"
+COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAICxWjMNXRNIOw6PJstVS2P6oFnW6wHAAJF-TEbLqthShzwv65k4n-MAQADAgADeQADNgQ"    # Картинка для сообщения о кулдауне
+TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ"         # Картинка для топа игроков
 
 
 logging.basicConfig(level=logging.INFO)
