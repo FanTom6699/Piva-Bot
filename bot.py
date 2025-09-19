@@ -10,8 +10,12 @@ import html
 from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
-from aiogram.fsm.storage.memory import MemoryStorage # <-- НОВЫЙ ИМПОРТ ДЛЯ ХРАНИЛИЩА
-from aiogram.dispatcher.middlewares.throttling import ThrottlingMiddleware # <-- НОВЫЙ ИМПОРТ ДЛЯ АНТИСПАМА
+from dotenv import load_dotenv
+
+# --- ИМПОРТЫ ДЛЯ АНТИСПАМА ---
+from typing import Callable, Dict, Any, Awaitable
+from aiogram.dispatcher.middlewares.base import BaseMiddleware
+from cachetools import TTLCache
 
 # --- Конфигурация ---
 load_dotenv()
@@ -23,7 +27,7 @@ if not BOT_TOKEN:
 
 DB_FILE = '/data/beer_game.db'
 COOLDOWN_SECONDS = 3 * 60 * 60  # 3 часа
-THROTTLE_TIME = 0.5 # <-- НОВЫЙ ПАРАМЕТР: Минимальный интервал между командами для антиспама (в секундах)
+THROTTLE_TIME = 0.5 # Минимальный интервал между командами для антиспама
 
 # --- File IDs для изображений ---
 SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ"
@@ -33,10 +37,25 @@ TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp
 
 logging.basicConfig(level=logging.INFO)
 
+# --- АНТИСПАМ MIDDLEWARE ---
+class ThrottlingMiddleware(BaseMiddleware):
+    def __init__(self, throttle_time: float = 0.5):
+        self.cache = TTLCache(maxsize=10_000, ttl=throttle_time)
+
+    async def __call__(
+        self,
+        handler: Callable[[Message, Dict[str, Any]], Awaitable[Any]],
+        event: Message,
+        data: Dict[str, Any]
+    ) -> Any:
+        if event.chat.id in self.cache:
+            return
+        self.cache[event.chat.id] = None
+        return await handler(event, data)
+
 router = Router()
 bot = Bot(token=BOT_TOKEN)
-# Инициализируем диспетчер с MemoryStorage
-dp = Dispatcher(storage=MemoryStorage()) # <-- ИЗМЕНЕНО: добавляем хранилище
+dp = Dispatcher()
 
 # --- Управление базой данных ---
 def init_db():
@@ -97,11 +116,10 @@ async def cmd_start(message: Message):
     user_id = message.from_user.id
     username = html.escape(message.from_user.full_name) 
 
-    user_data = get_user_data(user_id) # Проверяем наличие пользователя
+    user_data = get_user_data(user_id)
+    add_or_update_user(user_id, username)
 
-    add_or_update_user(user_id, username) # Добавляем или обновляем пользователя
-
-    if user_data: # Если user_data не None, значит пользователь уже был в базе
+    if user_data:
         await message.answer(f"С возвращением, {username}! Рады снова видеть тебя в баре. 🍻")
     else:
          await message.answer(
@@ -112,7 +130,6 @@ async def cmd_start(message: Message):
             "Посмотреть на лучших: /top\n"
             "Нужна помощь? /help"
         )
-
 
 @router.message(Command("profile"))
 async def cmd_profile(message: Message):
@@ -129,7 +146,6 @@ async def cmd_profile(message: Message):
         )
     else:
         await message.answer("Ты еще не зарегистрирован. Нажми /start, чтобы начать игру.")
-
 
 @router.message(Command("beer"))
 async def cmd_beer(message: Message):
@@ -155,7 +171,6 @@ async def cmd_beer(message: Message):
         )
         return
 
-    rating_change = 0
     if random.choice([True, False]):
         rating_change = random.randint(1, 10)
         new_rating = rating + rating_change
@@ -174,7 +189,6 @@ async def cmd_beer(message: Message):
         )
     
     update_user_rating_and_time(user_id, new_rating, current_time)
-
 
 @router.message(Command("top"))
 async def cmd_top(message: Message):
@@ -211,16 +225,14 @@ async def cmd_help(message: Message):
     )
     await message.answer(help_text, parse_mode="HTML")
 
-
 async def main():
     init_db()
     
-    # --- НОВАЯ СТРОКА: Регистрация ThrottlingMiddleware ---
-    dp.message.middleware(ThrottlingMiddleware(throttle_time=THROTTLE_TIME))
+    # Регистрируем middleware на роутер
+    router.message.middleware(ThrottlingMiddleware(throttle_time=THROTTLE_TIME))
     
     dp.include_router(router)
     await dp.start_polling(bot)
-
 
 if __name__ == '__main__':
     asyncio.run(main())
