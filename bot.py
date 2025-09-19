@@ -29,6 +29,13 @@ DB_FILE = '/data/beer_game.db'
 COOLDOWN_SECONDS = 3 * 60 * 60  # 3 часа
 THROTTLE_TIME = 0.5 # Минимальный интервал между командами для антиспама
 
+# --- НОВЫЕ ПАРАМЕТРЫ ШАНСОВ ---
+WIN_CHANCE = 60    # Шанс на выигрыш в %
+LOSE_CHANCE = 40   # Шанс на проигрыш в % (WIN_CHANCE + LOSE_CHANCE должно быть 100)
+# Если вы хотите ввести ничью, можно добавить:
+# DRAW_CHANCE = 10 (и тогда WIN_CHANCE + LOSE_CHANCE + DRAW_CHANCE = 100)
+# Сейчас у нас только два исхода, поэтому проверяем только WIN_CHANCE, остальное - Lose
+
 # --- File IDs для изображений ---
 SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ"
 FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE"
@@ -37,7 +44,7 @@ TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp
 
 logging.basicConfig(level=logging.INFO)
 
-# --- УЛУЧШЕННЫЙ АНТИСПАМ MIDDLEWARE (РАБОТАЕТ ПО USER_ID) ---
+# --- АНТИСПАМ MIDDLEWARE ---
 class ThrottlingMiddleware(BaseMiddleware):
     def __init__(self, throttle_time: float = 0.5):
         self.cache = TTLCache(maxsize=10_000, ttl=throttle_time)
@@ -48,7 +55,6 @@ class ThrottlingMiddleware(BaseMiddleware):
         event: Message,
         data: Dict[str, Any]
     ) -> Any:
-        # Теперь ключ кэша - это ID пользователя, а не ID чата
         user_id = event.from_user.id
         if user_id in self.cache:
             return
@@ -59,7 +65,7 @@ router = Router()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- Управление базой данных (без изменений) ---
+# --- Управление базой данных ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -111,7 +117,7 @@ def get_top_users(limit: int = 10):
     conn.close()
     return top_users
 
-# --- Обработчики команд (без изменений) ---
+# --- Обработчики команд ---
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -173,20 +179,36 @@ async def cmd_beer(message: Message):
         )
         return
 
-    if random.choice([True, False]):
-        rating_change = random.randint(1, 10)
-        new_rating = rating + rating_change
+    # Определяем исход на основе заданных процентов
+    roll = random.randint(1, 100) # Генерируем число от 1 до 100
+    
+    rating_change_amount = random.randint(1, 10) # Сколько пива получим/потеряем
+
+    if roll <= WIN_CHANCE: # Если выпавшее число меньше или равно шансу выигрыша
+        # Успех
+        new_rating = rating + rating_change_amount
         await message.answer_photo(
             photo=SUCCESS_IMAGE_ID,
-            caption=f"😏🍻 Ты успешно бахнул на <b>+{rating_change}</b> 🍺 пива!",
+            caption=f"😏🍻 Ты успешно бахнул на <b>+{rating_change_amount}</b> 🍺 пива!",
             parse_mode="HTML"
         )
     else:
-        rating_change = -random.randint(1, 10)
-        new_rating = rating + rating_change
+        # Неудача (выпавшее число больше WIN_CHANCE)
+        # Убедимся, что рейтинг не опустится ниже нуля
+        potential_new_rating = rating - rating_change_amount
+        new_rating = max(0, potential_new_rating) 
+
+        caption_message = ""
+        if potential_new_rating < 0:
+            actual_loss = rating # Сколько пива реально отняли до 0
+            caption_message = f"🤬🍻 Братья Уизли отжали у тебя все <b>{rating}</b> 🍺 пива! Ты на нуле..."
+        else:
+            actual_loss = rating_change_amount
+            caption_message = f"🤬🍻 Братья Уизли отжали у тебя <b>{actual_loss}</b> 🍺 пива!"
+
         await message.answer_photo(
             photo=FAIL_IMAGE_ID,
-            caption=f"🤬🍻 Братья Уизли отжали у тебя <b>{abs(rating_change)}</b> 🍺 пива!",
+            caption=caption_message,
             parse_mode="HTML"
         )
     
@@ -230,7 +252,6 @@ async def cmd_help(message: Message):
 async def main():
     init_db()
     
-    # Регистрируем middleware на роутер
     router.message.middleware(ThrottlingMiddleware(throttle_time=THROTTLE_TIME))
     
     dp.include_router(router)
