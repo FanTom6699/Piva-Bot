@@ -37,7 +37,7 @@ TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp
 
 logging.basicConfig(level=logging.INFO)
 
-# --- АНТИСПАМ MIDDLEWARE ---
+# --- УЛУЧШЕННЫЙ АНТИСПАМ MIDDLEWARE (РАБОТАЕТ ПО USER_ID) ---
 class ThrottlingMiddleware(BaseMiddleware):
     def __init__(self, throttle_time: float = 0.5):
         self.cache = TTLCache(maxsize=10_000, ttl=throttle_time)
@@ -48,16 +48,18 @@ class ThrottlingMiddleware(BaseMiddleware):
         event: Message,
         data: Dict[str, Any]
     ) -> Any:
-        if event.chat.id in self.cache:
+        # Теперь ключ кэша - это ID пользователя, а не ID чата
+        user_id = event.from_user.id
+        if user_id in self.cache:
             return
-        self.cache[event.chat.id] = None
+        self.cache[user_id] = None
         return await handler(event, data)
 
 router = Router()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- Управление базой данных ---
+# --- Управление базой данных (без изменений) ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -109,7 +111,7 @@ def get_top_users(limit: int = 10):
     conn.close()
     return top_users
 
-# --- Обработчики команд ---
+# --- Обработчики команд (без изменений) ---
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
