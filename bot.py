@@ -250,6 +250,12 @@ async def cmd_help(message: Message):
     await message.answer(help_text, parse_mode="HTML")
 
 async def main():
+    @router.message(lambda message: message.photo)
+async def get_photo_id(message: Message):
+    if message.photo:
+        file_id = message.photo[-1].file_id # Берем самое большое разрешение фото
+        await message.answer(f"FILE_ID этого фото: `{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!", parse_mode="Markdown")
+        logging.info(f"Received photo FILE_ID: {file_id}")
     init_db()
     
     router.message.middleware(ThrottlingMiddleware(throttle_time=THROTTLE_TIME))
