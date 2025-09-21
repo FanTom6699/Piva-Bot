@@ -514,12 +514,12 @@ async def cmd_help(message: Message):
     await message.answer(help_text, parse_mode="HTML")
 
 # Временный обработчик для получения FILE_ID (УДАЛИТЬ ПОСЛЕ использования!)
- @router.message(F.photo)
- async def get_photo_id(message: Message):
-     if message.photo:
-         file_id = message.photo[-1].file_id # Берем самое большое разрешение фото
-         await message.answer(f"FILE_ID этого фото: `{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!", parse_mode="Markdown")
-         logging.info(f"Received photo FILE_ID: {file_id}")
+@router.message(F.photo)
+async def get_photo_id(message: Message):
+    if message.photo:
+        file_id = message.photo[-1].file_id # Берем самое большое разрешение фото
+        await message.answer(f"FILE_ID этого фото: `{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!", parse_mode="Markdown")
+        logging.info(f"Received photo FILE_ID: {file_id}")
 # Удалить до этой строки.
 
 async def main():
