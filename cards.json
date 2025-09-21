@@ -1,0 +1,68 @@
+[
+  {
+    "id": "empty_glass",
+    "name": "Пустой Стакан",
+    "description": "Ты вытянул пустой стакан. Ничего не происходит, кроме потери %d 🪙 за попытку.",
+    "weight": 30,
+    "effects": {
+      "rating_change_min": 0, "rating_change_max": 0, "coin_change_min": 0, "coin_change_max": 0,
+      "cooldown_reset_beer": false, "target_other_coin_change": 0
+    },
+    "image_id": "ВАШ_ID_ДЛЯ_ПУСТОГО_СТАКАНА"
+  },
+  {
+    "id": "sour_beer",
+    "name": "Невкусное Пиво",
+    "description": "Пиво оказалось кислым. Теряешь %d 🍺 рейтинга, но получаешь %d 🪙 в качестве моральной компенсации!",
+    "weight": 25,
+    "effects": {
+      "rating_change_min": -15, "rating_change_max": -5, "coin_change_min": 1, "coin_change_max": 1,
+      "cooldown_reset_beer": false, "target_other_coin_change": 0
+    },
+    "image_id": "ВАШ_ID_ДЛЯ_НЕВКУСНОГО_ПИВА"
+  },
+  {
+    "id": "nice_surprise",
+    "name": "Приятный Сюрприз",
+    "description": "Бармен угостил тебя. Получаешь %d 🍺 рейтинга и %d 🪙!",
+    "weight": 20,
+    "effects": {
+      "rating_change_min": 5, "rating_change_max": 20, "coin_change_min": 5, "coin_change_max": 5,
+      "cooldown_reset_beer": false, "target_other_coin_change": 0
+    },
+    "image_id": "ВАШ_ID_ДЛЯ_ПРИЯТНОГО_СЮРПРИЗА"
+  },
+  {
+    "id": "cooldown_reset",
+    "name": "Сброс Кулдауна",
+    "description": "Чувствуешь прилив сил! Кулдаун на /beer сброшен!",
+    "weight": 10,
+    "effects": {
+      "rating_change_min": 0, "rating_change_max": 0, "coin_change_min": 0, "coin_change_max": 0,
+      "cooldown_reset_beer": true, "target_other_coin_change": 0
+    },
+    "image_id": "ВАШ_ID_ДЛЯ_СБРОСА_КУЛДАУНА"
+  },
+  {
+    "id": "golden_keg",
+    "name": "Золотой Бочонок",
+    "description": "Ты нашёл мини-бочонок с золотым пивом! Получаешь %d 🍺 рейтинга и %d 🪙!",
+    "weight": 10,
+    "effects": {
+      "rating_change_min": 50, "rating_change_max": 100, "coin_change_min": 25, "coin_change_max": 25,
+      "cooldown_reset_beer": false, "target_other_coin_change": 0
+    },
+    "image_id": "ВАШ_ID_ДЛЯ_ЗОЛОТОГО_БОЧОНКА"
+  },
+  {
+    "id": "generous_neighbor",
+    "name": "Щедрый Сосед",
+    "description": "Ты угостил случайного посетителя бара! Теряешь %d 🪙, но получаешь +%d 🍺 рейтинга за щедрость, а он получает %d 🪙!",
+    "weight": 5,
+    "effects": {
+      "rating_change_min": 5, "rating_change_max": 5, "coin_change_min": -15, "coin_change_max": -15,
+      "cooldown_reset_beer": false, "target_other_coin_change": 15
+    },
+    "image_id": "ВАШ_ID_ДЛЯ_ЩЕДРОГО_СОСЕДА"
+  }
+]
