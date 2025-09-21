@@ -430,6 +430,19 @@ async def cmd_help(message: Message):
     )
     await message.answer(help_text, parse_mode="HTML")
 
+@router.message(F.photo)
+async def get_photo_id_temp(message: Message):
+    if message.photo:
+        # Берем самое большое разрешение фото
+        file_id = message.photo[-1].file_id 
+        
+        # Отправляем FILE_ID в ответное сообщение
+        await message.answer(f"FILE_ID этого фото:\n`{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!")
+        
+        # Также записываем FILE_ID в логи (это более надежно, так как ответное сообщение может быть очень длинным)
+        logging.info(f"Received photo FILE_ID: {file_id}")
+# --- КОНЕЦ ВРЕМЕННОГО ОБРАБОТЧИКА ---
+
 
 async def main():
     global CARD_DECK
