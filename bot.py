@@ -1,20 +1,20 @@
+# --- Стандартные библиотеки ---
 import asyncio
 import logging
 import sqlite3
 import os
 import random
 import time
-from datetime import timedelta, date
+from datetime import datetime, date, timedelta, time # datetime.time здесь - это класс time из модуля datetime
 import html
-import json # Для работы с JSON-файлами
+import json
+from typing import Callable, Dict, Any, Awaitable
 
+# --- Сторонние библиотеки ---
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
-
-# --- ИМПОРТЫ ДЛЯ АНТИСПАМА ---
-from typing import Callable, Dict, Any, Awaitable
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from cachetools import TTLCache
 
@@ -24,7 +24,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 if not BOT_TOKEN:
-    raise ValueError("Не найден BOT_TOKEN. Проверьте переменные окружения (.env или настройки хостинга).")
+    raise ValueError("Не найден BOT_TOKEN. Проверьте переменные окружения.")
 
 DB_FILE = '/data/beer_game.db'
 COOLDOWN_SECONDS = 3 * 60 * 60  # 3 часа для /beer
@@ -45,12 +45,12 @@ DAILY_STREAK_COIN_BONUSES = [0, 5, 10, 15, 20]
 DAILY_MAX_STREAK_BONUS_INDEX = len(DAILY_STREAK_COIN_BONUSES) - 1
 
 # --- File IDs для изображений ---
-SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ"
-FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE"
-COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAICxWjMNXRNIOw6PJstVS2P6oFnW6wHAAJF-TEbLqthShzwv65k4n-MAQADAgADeQADNgQ"
-TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ"
-# НОВАЯ КАРТИНКА ДЛЯ ЕЖЕДНЕВНОГО БОНУСА
-DAILY_IMAGE_ID = "AgACAgIAAxkBAAID-2jWl_2tS0l36d_F42aI2zV_1dI7AAI34jEb5J_xSCu_t_37b98BAAMCAAN5AAM2BA" # ВСТАВЬТЕ СЮДА ВАШ FILE_ID ДЛЯ DAILY
+# !!! ВСТАВЬТЕ СЮДА РЕАЛЬНЫЕ FILE_ID ВАШИХ КАРТИНОК !!!
+SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ" # Пример
+FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE" # Пример
+COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAICxWjMNXRNIOw6PJstVS2P6oFnW6wHAAJF-TEbLqthShzwv65k4n-MAQADAgADeQADNgQ" # Пример
+TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ" # Пример
+DAILY_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_DAILY" # <--- ЗАМЕНИТЕ ЭТОТ НА СВОЙ!
 
 logging.basicConfig(level=logging.INFO)
 
@@ -78,7 +78,7 @@ router = Router()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- Управление базой данных (ОБНОВЛЕНО: добавлены coins, last_card_time, daily_streak, last_daily_claim_date) ---
+# --- Управление базой данных ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -87,11 +87,11 @@ def init_db():
             user_id INTEGER PRIMARY KEY,
             username TEXT NOT NULL,
             rating INTEGER DEFAULT 0,
-            coins INTEGER DEFAULT 0, -- НОВОЕ ПОЛЕ: Фанкоины
+            coins INTEGER DEFAULT 0,
             last_beer_time INTEGER DEFAULT 0,
-            last_card_time INTEGER DEFAULT 0, -- НОВОЕ ПОЛЕ: для кулдауна карт
-            last_daily_claim_date TEXT DEFAULT '1970-01-01', -- НОВОЕ ПОЛЕ: Дата последнего ежедневного бонуса
-            daily_streak INTEGER DEFAULT 0 -- НОВОЕ ПОЛЕ: Счётчик ежедневных заходов
+            last_card_time INTEGER DEFAULT 0,
+            last_daily_claim_date TEXT DEFAULT '1970-01-01',
+            daily_streak INTEGER DEFAULT 0
         )
     ''')
     conn.commit()
@@ -101,7 +101,6 @@ def init_db():
 def get_user_data(user_id: int):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    # ОБНОВЛЕНО: Запрос всех новых полей
     cursor.execute("SELECT username, rating, coins, last_beer_time, last_card_time, last_daily_claim_date, daily_streak FROM users WHERE user_id = ?", (user_id,))
     user_data = cursor.fetchone()
     conn.close()
@@ -110,7 +109,6 @@ def get_user_data(user_id: int):
 def add_or_update_user(user_id: int, username: str):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    # ОБНОВЛЕНО: При первом добавлении/обновлении можно дать стартовые монеты
     cursor.execute(
         "INSERT INTO users (user_id, username, coins) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username = EXCLUDED.username",
         (user_id, username, 50) # Даем 50 Фанкоинов при первом /start
@@ -118,7 +116,6 @@ def add_or_update_user(user_id: int, username: str):
     conn.commit()
     conn.close()
 
-# ОБНОВЛЕНО: Функция для обновления рейтинга, монет и времени пива
 def update_user_beer_data(user_id: int, new_rating: int, new_coins: int, current_time: int):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -129,7 +126,6 @@ def update_user_beer_data(user_id: int, new_rating: int, new_coins: int, current
     conn.commit()
     conn.close()
 
-# НОВАЯ ФУНКЦИЯ: Обновление данных после вытягивания карты
 def update_user_card_data(user_id: int, new_rating: int, new_coins: int, current_time: int, beer_cooldown_reset: bool = False):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -146,7 +142,6 @@ def update_user_card_data(user_id: int, new_rating: int, new_coins: int, current
     conn.commit()
     conn.close()
 
-# НОВАЯ ФУНКЦИЯ: Обновление данных после ежедневного бонуса
 def update_user_daily_data(user_id: int, new_rating: int, new_coins: int, current_date_str: str, new_streak: int):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -157,7 +152,6 @@ def update_user_daily_data(user_id: int, new_rating: int, new_coins: int, curren
     conn.commit()
     conn.close()
 
-# НОВАЯ ФУНКЦИЯ: Обновление монет для другого пользователя (для "Щедрого Соседа")
 def update_other_user_coins(user_id: int, coin_change: int):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -176,7 +170,6 @@ def get_top_users(limit: int = 10):
     conn.close()
     return top_users
 
-# НОВАЯ ФУНКЦИЯ: Загрузка колоды карт из JSON файла
 def load_card_deck():
     try:
         with open('cards.json', 'r', encoding='utf-8') as f:
@@ -189,7 +182,6 @@ def load_card_deck():
         logging.error("Ошибка в формате файла cards.json! Проверьте синтаксис JSON.")
         return []
 
-# НОВАЯ ФУНКЦИЯ: Выбор случайной карты из колоды по весу
 def choose_random_card():
     if not CARD_DECK:
         return None
@@ -206,11 +198,9 @@ async def cmd_start(message: Message):
     username = html.escape(message.from_user.full_name) 
 
     user_data = get_user_data(user_id)
-    # ОБНОВЛЕНО: add_or_update_user теперь даёт стартовые монеты
     add_or_update_user(user_id, username)
 
     if user_data:
-        # ОБНОВЛЕНО: Сообщение теперь упоминает Фанкоины
         await message.answer(f"С возвращением, {username}! Рады снова видеть тебя в баре. 🍻")
     else:
          await message.answer(
@@ -230,7 +220,6 @@ async def cmd_profile(message: Message):
     user_data = get_user_data(user_id)
     
     if user_data:
-        # ОБНОВЛЕНО: Отображение Фанкоинов в профиле
         username, rating, coins, _, _, _, _ = user_data
         await message.answer(
             f"👤 <b>Твой профиль:</b>\n\n"
@@ -245,7 +234,7 @@ async def cmd_profile(message: Message):
 @router.message(Command("beer"))
 async def cmd_beer(message: Message):
     user_id = message.from_user.id
-    current_time = int(time.time())
+    current_time = int(time.time()) # Здесь time.time() - это функция из импортированного модуля time
 
     user_data = get_user_data(user_id)
 
@@ -266,11 +255,10 @@ async def cmd_beer(message: Message):
         )
         return
 
-    # Определяем исход на основе заданных процентов
     roll = random.randint(1, 100)
     
     rating_change_amount = random.randint(1, 10)
-    coin_bonus = random.randint(1, 2) # Бонус Фанкоинов за каждый /beer
+    coin_bonus = random.randint(1, 2)
 
     new_rating = rating
     new_coins = coins + coin_bonus
@@ -279,12 +267,10 @@ async def cmd_beer(message: Message):
     photo_id = ""
 
     if roll <= WIN_CHANCE:
-        # Успех
         new_rating = rating + rating_change_amount
         caption_text = f"😏🍻 Ты успешно бахнул на <b>+{rating_change_amount}</b> 🍺 пива! Получаешь <b>+{coin_bonus}</b> 🪙 Фанкоинов!"
         photo_id = SUCCESS_IMAGE_ID
     else:
-        # Неудача
         potential_new_rating = rating - rating_change_amount
         if potential_new_rating < 0:
             actual_loss = rating
@@ -299,11 +285,9 @@ async def cmd_beer(message: Message):
     update_user_beer_data(user_id, new_rating, new_coins, current_time)
     await message.answer_photo(photo=photo_id, caption=caption_text, parse_mode="HTML")
 
-# НОВАЯ КОМАНДА: /daily
 @router.message(Command("daily"))
 async def cmd_daily(message: Message):
     user_id = message.from_user.id
-    current_time = int(time.time())
     current_date = date.today()
     current_date_str = current_date.isoformat() # 'YYYY-MM-DD'
 
@@ -316,12 +300,16 @@ async def cmd_daily(message: Message):
 
     # Проверяем, был ли уже получен бонус сегодня
     if last_daily_claim_date == current_date_str:
-        time_left_until_tomorrow = datetime.combine(current_date + timedelta(days=1), time(0, 0, 0)) - datetime.now()
-        hours, remainder = divmod(int(time_left_until_tomorrow.total_seconds()), 3600)
+        # Вычисляем время до полуночи следующего дня
+        next_day = current_date + timedelta(days=1)
+        time_until_midnight = datetime.combine(next_day, time.min) - datetime.now()
+        
+        hours, remainder = divmod(int(time_until_midnight.total_seconds()), 3600)
         minutes, seconds = divmod(remainder, 60)
         time_left_formatted = f"{hours}ч {minutes}м {seconds}с"
+
         await message.answer_photo(
-            photo=COOLDOWN_IMAGE_ID, # Можно использовать другую картинку для ежедневного кулдауна, если есть
+            photo=COOLDOWN_IMAGE_ID,
             caption=f"⏰ **Рановато!** Ежедневный бонус можно получить завтра. Осталось: <b>{time_left_formatted}</b>",
             parse_mode="HTML"
         )
@@ -329,13 +317,10 @@ async def cmd_daily(message: Message):
 
     # Проверяем стрик
     if last_daily_claim_date == (current_date - timedelta(days=1)).isoformat():
-        # Стрик продолжается
         new_streak = daily_streak + 1
     else:
-        # Стрик прерван или начинается
         new_streak = 1
     
-    # Ограничиваем стрик для бонусов
     streak_bonus_index = min(new_streak - 1, DAILY_MAX_STREAK_BONUS_INDEX)
     bonus_coins = DAILY_BASE_COIN_BONUS + DAILY_STREAK_COIN_BONUSES[streak_bonus_index]
     bonus_rating = DAILY_BASE_RATING_BONUS
@@ -351,7 +336,6 @@ async def cmd_daily(message: Message):
 
     await message.answer_photo(photo=DAILY_IMAGE_ID, caption=caption_text, parse_mode="HTML")
 
-# НОВАЯ КОМАНДА: /draw_card
 @router.message(Command("draw_card"))
 async def cmd_draw_card(message: Message):
     user_id = message.from_user.id
@@ -364,19 +348,17 @@ async def cmd_draw_card(message: Message):
 
     username, rating, coins, _, last_card_time, _, _ = user_data
 
-    # Проверка кулдауна для карт
     time_passed = current_time - last_card_time
     if time_passed < CARD_COOLDOWN_SECONDS:
         time_left = CARD_COOLDOWN_SECONDS - time_passed
         time_left_formatted = str(timedelta(seconds=time_left))
         await message.answer_photo(
-            photo=COOLDOWN_IMAGE_ID, # Можно использовать другую картинку для кулдауна карт
+            photo=COOLDOWN_IMAGE_ID,
             caption=f"Колода ещё не перемешана! ⏳\nПопробуй вытянуть карту через: <b>{time_left_formatted}</b>",
             parse_mode="HTML"
         )
         return
 
-    # Проверка наличия Фанкоинов
     if coins < CARD_DRAW_COST:
         await message.answer(
             f"Не хватает Фанкоинов! 😔 Для вытягивания карты нужно <b>{CARD_DRAW_COST}</b> 🪙, а у тебя только <b>{coins}</b> 🪙.",
@@ -384,7 +366,6 @@ async def cmd_draw_card(message: Message):
         )
         return
 
-    # Списываем стоимость
     new_coins = coins - CARD_DRAW_COST
     new_rating = rating
     
@@ -399,34 +380,29 @@ async def cmd_draw_card(message: Message):
     card_image_id = chosen_card['image_id']
     effects = chosen_card['effects']
 
-    # Применяем эффекты
     rating_change = random.randint(effects.get('rating_change_min', 0), effects.get('rating_change_max', 0))
     coin_change = random.randint(effects.get('coin_change_min', 0), effects.get('coin_change_max', 0))
     
-    new_rating = max(0, new_rating + rating_change) # Рейтинг не может быть ниже 0
-    new_coins = max(0, new_coins + coin_change) # Монеты не могут быть ниже 0
+    new_rating = max(0, new_rating + rating_change)
+    new_coins = max(0, new_coins + coin_change)
 
     beer_cooldown_reset = effects.get('cooldown_reset_beer', False)
     target_other_coin_change = effects.get('target_other_coin_change', 0)
 
-    final_description = card_description # Сообщение, которое отправится игроку
+    final_description = card_description
 
     if target_other_coin_change > 0:
-        # Находим случайного другого пользователя
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         cursor.execute("SELECT user_id FROM users WHERE user_id != ? ORDER BY RANDOM() LIMIT 1", (user_id,))
-        other_user_id = cursor.fetchone()
+        other_user_id_tuple = cursor.fetchone()
         conn.close()
 
-        if other_user_id:
-            other_user_id = other_user_id[0]
+        if other_user_id_tuple:
+            other_user_id = other_user_id_tuple[0]
             update_other_user_coins(other_user_id, target_other_coin_change)
-            # Отправляем уведомление другому игроку, если это возможно (например, если он в ЛС с ботом)
+            
             try:
-                # ОБНОВЛЕНО: Делаем описание для "Щедрого Соседа" более динамичным
-                # description_args = (abs(coin_change), abs(target_other_coin_change), target_other_coin_change)
-                # final_description = card_description % description_args
                 other_user_data = get_user_data(other_user_id)
                 if other_user_data:
                     other_username = html.escape(other_user_data[0])
@@ -439,35 +415,30 @@ async def cmd_draw_card(message: Message):
                 logging.warning(f"Не удалось отправить уведомление другому игроку {other_user_id}: {e}")
         else:
             final_description += "\n(Но никого другого в баре не оказалось, чтобы угостить!)"
-            # Если нет других пользователей, монеты просто пропадают или возвращаются игроку
-            new_coins = new_coins - coin_change # Отменяем потерю монет, если некого угощать
-            new_rating = max(0, new_rating - rating_change) # Отменяем бонус рейтинга, если некого угощать
+            new_coins = new_coins - coin_change
+            new_rating = max(0, new_rating - rating_change)
             
-    # Форматируем описание карты, если есть динамические значения
     if '%d' in card_description:
-        # Собираем аргументы для форматирования строки
         description_args = []
         if 'coin_change_min' in effects and 'coin_change_max' in effects:
-            val = abs(random.randint(effects['coin_change_min'], effects['coin_change_max']))
-            if val > 0: description_args.append(val)
+            if effects['coin_change_min'] != 0 or effects['coin_change_max'] != 0:
+                description_args.append(abs(random.randint(effects['coin_change_min'], effects['coin_change_max'])))
         if 'rating_change_min' in effects and 'rating_change_max' in effects:
-            val = abs(random.randint(effects['rating_change_min'], effects['rating_change_max']))
-            if val > 0: description_args.append(val)
+            if effects['rating_change_min'] != 0 or effects['rating_change_max'] != 0:
+                description_args.append(abs(random.randint(effects['rating_change_min'], effects['rating_change_max'])))
         
-        # Для Щедрого Соседа, описание специфично
         if chosen_card['id'] == 'generous_neighbor':
              description_args = [abs(coin_change), abs(rating_change), target_other_coin_change]
 
         try:
+            # Преобразуем список аргументов в кортеж для форматирования
             final_description = card_description % tuple(description_args)
         except TypeError:
             logging.warning(f"Ошибка форматирования описания для карты {card_name}. Описание: {card_description}, Аргументы: {description_args}")
-            final_description = card_description # Возвращаемся к базовому описанию, если ошибка
+            final_description = card_description
 
-    # Обновляем данные пользователя
     update_user_card_data(user_id, new_rating, new_coins, current_time, beer_cooldown_reset)
 
-    # Отправляем результат
     caption_message = (
         f"🃏 **Ты вытянул карту: '{card_name}'** 🃏\n\n"
         f"{final_description}\n\n"
@@ -513,19 +484,20 @@ async def cmd_help(message: Message):
     )
     await message.answer(help_text, parse_mode="HTML")
 
-# Временный обработчик для получения FILE_ID (УДАЛИТЬ ПОСЛЕ использования!)
+# --- ВРЕМЕННЫЙ ОБРАБОТЧИК ДЛЯ ПОЛУЧЕНИЯ FILE_ID ---
+# !!! ПОСЛЕ ТОГО, КАК ПОЛУЧИТЕ ВСЕ FILE_ID, УДАЛИТЕ ВЕСЬ ЭТОТ БЛОК !!!
 @router.message(F.photo)
 async def get_photo_id(message: Message):
     if message.photo:
         file_id = message.photo[-1].file_id # Берем самое большое разрешение фото
-        await message.answer(f"FILE_ID этого фото: `{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!", parse_mode="Markdown")
+        await message.answer(f"FILE_ID этого фото:\n`{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!", parse_mode="Markdown")
         logging.info(f"Received photo FILE_ID: {file_id}")
-# Удалить до этой строки.
+# --- КОНЕЦ ВРЕМЕННОГО ОБРАБОТЧИКА ---
 
 async def main():
-    global CARD_DECK # Объявляем, что будем использовать глобальную переменную
+    global CARD_DECK
     init_db()
-    CARD_DECK = load_card_deck() # Загружаем карты при старте
+    CARD_DECK = load_card_deck()
     
     router.message.middleware(ThrottlingMiddleware(throttle_time=THROTTLE_TIME))
     
@@ -533,6 +505,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
-    # Обязательно импортируем datetime.time и datetime.datetime для cmd_daily
-    from datetime import datetime, time
     asyncio.run(main())
