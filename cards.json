@@ -8,7 +8,7 @@
       "rating_change_min": 0, "rating_change_max": 0, "coin_change_min": 0, "coin_change_max": 0,
       "cooldown_reset_beer": false, "target_other_coin_change": 0
     },
-    "image_id": "ВАШ_ID_ДЛЯ_ПУСТОГО_СТАКАНА"
+    "image_id": "AgACAgIAAxkBAAID7GjPtJ-b2g7aSFqW6idEamY0XvU-AAIn9jEbkeGASnCklMdjYfCzAQADAgADeQADNgQ"
   },
   {
     "id": "sour_beer",
@@ -30,7 +30,7 @@
       "rating_change_min": 5, "rating_change_max": 20, "coin_change_min": 5, "coin_change_max": 5,
       "cooldown_reset_beer": false, "target_other_coin_change": 0
     },
-    "image_id": "ВАШ_ID_ДЛЯ_ПРИЯТНОГО_СЮРПРИЗА"
+    "image_id": "AgACAgIAAxkBAAID6mjPtHYlgZuB2zluSB4P4wOAsk6lAAIm9jEbkeGAStxgb1TuvP7PAQADAgADeQADNgQ"
   },
   {
     "id": "cooldown_reset",
@@ -41,7 +41,7 @@
       "rating_change_min": 0, "rating_change_max": 0, "coin_change_min": 0, "coin_change_max": 0,
       "cooldown_reset_beer": true, "target_other_coin_change": 0
     },
-    "image_id": "ВАШ_ID_ДЛЯ_СБРОСА_КУЛДАУНА"
+    "image_id": "AgACAgIAAxkBAAID6GjPtFeOMNnlf-DRNfIgXPd95VyMAAIi9jEbkeGASuPqQMUXULxqAQADAgADeQADNgQ"
   },
   {
     "id": "golden_keg",
@@ -52,7 +52,7 @@
       "rating_change_min": 50, "rating_change_max": 100, "coin_change_min": 25, "coin_change_max": 25,
       "cooldown_reset_beer": false, "target_other_coin_change": 0
     },
-    "image_id": "ВАШ_ID_ДЛЯ_ЗОЛОТОГО_БОЧОНКА"
+    "image_id": "AgACAgIAAxkBAAID5mjPtDrq_uU-eRfTcFYIwJLraQABqwACIfYxG5HhgEqICpo69bO0OwEAAwIAA3kAAzYE"
   },
   {
     "id": "generous_neighbor",
@@ -63,6 +63,6 @@
       "rating_change_min": 5, "rating_change_max": 5, "coin_change_min": -15, "coin_change_max": -15,
       "cooldown_reset_beer": false, "target_other_coin_change": 15
     },
-    "image_id": "ВАШ_ID_ДЛЯ_ЩЕДРОГО_СОСЕДА"
+    "image_id": "AgACAgIAAxkBAAID3mjPsFGnFIFvULX5gxRLwv91IOkNAAIB9jEbkeGASuLGz_NkB6ekAQADAgADeQADNgQ"
   }
 ]
