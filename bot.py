@@ -485,7 +485,8 @@ async def cmd_help(message: Message):
 async def get_photo_id(message: Message):
     if message.photo:
         file_id = message.photo[-1].file_id # Берем самое большое разрешение фото
-        await message.answer(f"FILE_ID этого фото:\n`{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!", parse_mode="Markdown")
+        # ИЗМЕНЕНО: Убрал parse_mode="Markdown" для простоты и избежания ошибок парсинга
+        await message.answer(f"FILE_ID этого фото:\n`{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!")
         logging.info(f"Received photo FILE_ID: {file_id}")
 # --- КОНЕЦ ВРЕМЕННОГО ОБРАБОТЧИКА ---
 
