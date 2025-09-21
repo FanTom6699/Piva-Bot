@@ -4,8 +4,8 @@ import logging
 import sqlite3
 import os
 import random
-import time  # <--- Импортируем модуль time
-from datetime import datetime, date, timedelta, time as dt_time # <--- Импортируем класс time и даём ему псевдоним dt_time
+import time
+from datetime import datetime, date, timedelta, time as dt_time
 import html
 import json
 from typing import Callable, Dict, Any, Awaitable
@@ -42,10 +42,11 @@ DAILY_STREAK_COIN_BONUSES = [0, 5, 10, 15, 20]
 DAILY_MAX_STREAK_BONUS_INDEX = len(DAILY_STREAK_COIN_BONUSES) - 1
 
 # --- File IDs для изображений ---
-SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ"
-FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE"
-COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAICxWjMNXRNIOw6PJstVS2P6oFnW6wHAAJF-TEbLqthShzwv65k4n-MAQADAgADeQADNgQ"
-TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ"
+# !!! ВСТАВЬТЕ СЮДА РЕАЛЬНЫЕ FILE_ID ВАШИХ КАРТИНОК !!!
+SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ" # Пример
+FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE" # Пример
+COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAICxWjMNXRNIOw6PJstVS2P6oFnW6wHAAJF-TEbLqthShzwv65k4n-MAQADAgADeQADNgQ" # Пример
+TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ" # Пример
 DAILY_IMAGE_ID = "ВАШ_FILE_ID_ДЛЯ_DAILY" # <--- ЗАМЕНИТЕ ЭТОТ НА СВОЙ!
 
 logging.basicConfig(level=logging.INFO)
@@ -90,6 +91,56 @@ def init_db():
         )
     ''')
     conn.commit()
+
+    # --- ВРЕМЕННЫЙ БЛОК ДЛЯ ДОБАВЛЕНИЯ КОЛОНОК (УДАЛИТЬ ПОСЛЕ ПЕРВОГО УСПЕШНОГО ЗАПУСКА) ---
+    # Этот блок нужен для того, чтобы добавить новые колонки в уже существующую базу данных,
+    # если она была создана с более старой версией схемы.
+    # После первого успешного деплоя и запуска, когда база данных обновится,
+    # вы можете полностью удалить этот блок `try-except` для каждой колонки.
+    # Если вы удаляли файл базы данных, то этот блок не нужен, но пусть пока побудет.
+
+    # Проверка и добавление колонки coins
+    try:
+        cursor.execute("SELECT coins FROM users LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE users ADD COLUMN coins INTEGER DEFAULT 0")
+        conn.commit()
+        logging.info("Колонка 'coins' добавлена.")
+        
+    # Проверка и добавление колонки last_beer_time
+    try:
+        cursor.execute("SELECT last_beer_time FROM users LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_beer_time INTEGER DEFAULT 0")
+        conn.commit()
+        logging.info("Колонка 'last_beer_time' добавлена.")
+
+    # Проверка и добавление колонки last_card_time
+    try:
+        cursor.execute("SELECT last_card_time FROM users LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_card_time INTEGER DEFAULT 0")
+        conn.commit()
+        logging.info("Колонка 'last_card_time' добавлена.")
+
+    # Проверка и добавление колонки last_daily_claim_date
+    try:
+        cursor.execute("SELECT last_daily_claim_date FROM users LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_daily_claim_date TEXT DEFAULT '1970-01-01'")
+        conn.commit()
+        logging.info("Колонка 'last_daily_claim_date' добавлена.")
+
+    # Проверка и добавление колонки daily_streak
+    try:
+        cursor.execute("SELECT daily_streak FROM users LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE users ADD COLUMN daily_streak INTEGER DEFAULT 0")
+        conn.commit()
+        logging.info("Колонка 'daily_streak' добавлена.")
+
+    # --- КОНЕЦ ВРЕМЕННОГО БЛОКА ---
+
     conn.close()
     logging.info("База данных успешно инициализирована/обновлена.")
 
@@ -104,9 +155,10 @@ def get_user_data(user_id: int):
 def add_or_update_user(user_id: int, username: str):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    # Убедимся, что при первом /start даем 50 Фанкоинов (молний)
     cursor.execute(
         "INSERT INTO users (user_id, username, coins) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username = EXCLUDED.username",
-        (user_id, username, 50)
+        (user_id, username, 50) 
     )
     conn.commit()
     conn.close()
@@ -216,7 +268,7 @@ async def cmd_profile(message: Message):
             f"👤 <b>Твой профиль:</b>\n\n"
             f"Имя: <b>{username}</b>\n"
             f"Рейтинг: <b>{rating}</b> 🍺\n"
-            f"Фанкоины: <b>{coins}</b> 🪙",
+            f"Фанкоины: <b>{coins}</b> ⚡", # ИЗМЕНЕНО: эмодзи для Фанкоинов
             parse_mode="HTML"
         )
     else:
@@ -250,18 +302,18 @@ async def cmd_beer(message: Message):
     photo_id = ""
     if roll <= WIN_CHANCE:
         new_rating = rating + rating_change_amount
-        caption_text = f"😏🍻 Ты успешно бахнул на <b>+{rating_change_amount}</b> 🍺 пива! Получаешь <b>+{coin_bonus}</b> 🪙 Фанкоинов!"
+        caption_text = f"😏🍻 Ты успешно бахнул на <b>+{rating_change_amount}</b> 🍺 пива! Получаешь <b>+{coin_bonus}</b> ⚡ Фанкоинов!" # ИЗМЕНЕНО: эмодзи для Фанкоинов
         photo_id = SUCCESS_IMAGE_ID
     else:
         potential_new_rating = rating - rating_change_amount
         if potential_new_rating < 0:
             actual_loss = rating
             new_rating = 0
-            caption_text = f"🤬🍻 Братья Уизли отжали у тебя все <b>{actual_loss}</b> 🍺 пива! Ты на нуле, но получаешь <b>+{coin_bonus}</b> 🪙 Фанкоинов."
+            caption_text = f"🤬🍻 Братья Уизли отжали у тебя все <b>{actual_loss}</b> 🍺 пива! Ты на нуле, но получаешь <b>+{coin_bonus}</b> ⚡ Фанкоинов." # ИЗМЕНЕНО: эмодзи для Фанкоинов
         else:
             actual_loss = rating_change_amount
             new_rating = potential_new_rating
-            caption_text = f"🤬🍻 Братья Уизли отжали у тебя <b>{actual_loss}</b> 🍺 пива, но ты всё равно получаешь <b>+{coin_bonus}</b> 🪙 Фанкоинов!"
+            caption_text = f"🤬🍻 Братья Уизли отжали у тебя <b>{actual_loss}</b> 🍺 пива, но ты всё равно получаешь <b>+{coin_bonus}</b> ⚡ Фанкоинов!" # ИЗМЕНЕНО: эмодзи для Фанкоинов
         photo_id = FAIL_IMAGE_ID
     update_user_beer_data(user_id, new_rating, new_coins, current_time)
     await message.answer_photo(photo=photo_id, caption=caption_text, parse_mode="HTML")
@@ -278,7 +330,6 @@ async def cmd_daily(message: Message):
     username, rating, coins, _, _, last_daily_claim_date, daily_streak = user_data
     if last_daily_claim_date == current_date_str:
         next_day = current_date + timedelta(days=1)
-        # ИСПОЛЬЗУЕМ dt_time.min ВМЕСТО time.min
         time_until_midnight = datetime.combine(next_day, dt_time.min) - datetime.now()
         hours, remainder = divmod(int(time_until_midnight.total_seconds()), 3600)
         minutes, _ = divmod(remainder, 60)
@@ -299,9 +350,9 @@ async def cmd_daily(message: Message):
     new_coins = coins + bonus_coins
     new_rating = rating + bonus_rating
     update_user_daily_data(user_id, new_rating, new_coins, current_date_str, new_streak)
-    caption_text = f"🎉 **Ежедневный бонус!** Ты получил <b>+{bonus_coins}</b> 🪙 Фанкоинов и <b>+{bonus_rating}</b> 🍺 рейтинга!"
+    caption_text = f"🎉 **Ежедневный бонус!** Ты получил <b>+{bonus_coins}</b> ⚡ Фанкоинов и <b>+{bonus_rating}</b> 🍺 рейтинга!" # ИЗМЕНЕНО: эмодзи для Фанкоинов
     if new_streak > 1:
-        caption_text += f"\nТвой стрик: <b>{new_streak} дней</b> (+{DAILY_STREAK_COIN_BONUSES[streak_bonus_index]} 🪙 за серию)!"
+        caption_text += f"\nТвой стрик: <b>{new_streak} дней</b> (+{DAILY_STREAK_COIN_BONUSES[streak_bonus_index]} ⚡ за серию)!" # ИЗМЕНЕНО: эмодзи для Фанкоинов
     await message.answer_photo(photo=DAILY_IMAGE_ID, caption=caption_text, parse_mode="HTML")
 
 @router.message(Command("draw_card"))
@@ -325,7 +376,7 @@ async def cmd_draw_card(message: Message):
         return
     if coins < CARD_DRAW_COST:
         await message.answer(
-            f"Не хватает Фанкоинов! 😔 Для вытягивания карты нужно <b>{CARD_DRAW_COST}</b> 🪙, а у тебя только <b>{coins}</b> 🪙.",
+            f"Не хватает Фанкоинов! 😔 Для вытягивания карты нужно <b>{CARD_DRAW_COST}</b> ⚡, а у тебя только <b>{coins}</b> ⚡.", # ИЗМЕНЕНО: эмодзи для Фанкоинов
             parse_mode="HTML"
         )
         return
@@ -362,7 +413,7 @@ async def cmd_draw_card(message: Message):
                     other_username = html.escape(other_user_data[0])
                     await bot.send_message(
                         other_user_id,
-                        f"🎉 **Сюрприз!** Игрок <b>{username}</b> был сегодня щедр и угостил тебя <b>+{target_other_coin_change}</b> 🪙 Фанкоинов!",
+                        f"🎉 **Сюрприз!** Игрок <b>{username}</b> был сегодня щедр и угостил тебя <b>+{target_other_coin_change}</b> ⚡ Фанкоинов!", # ИЗМЕНЕНО: эмодзи для Фанкоинов
                         parse_mode="HTML"
                     )
             except Exception as e:
@@ -391,7 +442,7 @@ async def cmd_draw_card(message: Message):
         f"🃏 **Ты вытянул карту: '{card_name}'** 🃏\n\n"
         f"{final_description}\n\n"
         f"Твой новый рейтинг: <b>{new_rating}</b> 🍺\n"
-        f"Твои новые Фанкоины: <b>{new_coins}</b> 🪙"
+        f"Твои новые Фанкоины: <b>{new_coins}</b> ⚡" # ИЗМЕНЕНО: эмодзи для Фанкоинов
     )
     await message.answer_photo(photo=card_image_id, caption=caption_message, parse_mode="HTML")
 
@@ -428,11 +479,24 @@ async def cmd_help(message: Message):
     )
     await message.answer(help_text, parse_mode="HTML")
 
+# --- ВРЕМЕННЫЙ ОБРАБОТЧИК ДЛЯ ПОЛУЧЕНИЯ FILE_ID ---
+# !!! ПОСЛЕ ТОГО, КАК ПОЛУЧИТЕ ВСЕ FILE_ID, УДАЛИТЕ ВЕСЬ ЭТОТ БЛОК !!!
+@router.message(F.photo)
+async def get_photo_id(message: Message):
+    if message.photo:
+        file_id = message.photo[-1].file_id # Берем самое большое разрешение фото
+        await message.answer(f"FILE_ID этого фото:\n`{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!", parse_mode="Markdown")
+        logging.info(f"Received photo FILE_ID: {file_id}")
+# --- КОНЕЦ ВРЕМЕННОГО ОБРАБОТЧИКА ---
+
+
 async def main():
     global CARD_DECK
     init_db()
     CARD_DECK = load_card_deck()
+    
     router.message.middleware(ThrottlingMiddleware(throttle_time=THROTTLE_TIME))
+    
     dp.include_router(router)
     await dp.start_polling(bot)
 
