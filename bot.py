@@ -47,7 +47,7 @@ SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8
 FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE" # Пример
 COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAICxWjMNXRNIOw6PJstVS2P6oFnW6wHAAJF-TEbLqthShzwv65k4n-MAQADAgADeQADNgQ" # Пример
 TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ" # Пример
-DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ" # <--- ЗАМЕНИТЕ ЭТОТ НА СВОЙ!
+DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ" # <--- ОБНОВЛЕНО!
 
 logging.basicConfig(level=logging.INFO)
 
@@ -91,56 +91,7 @@ def init_db():
         )
     ''')
     conn.commit()
-
-    # --- ВРЕМЕННЫЙ БЛОК ДЛЯ ДОБАВЛЕНИЯ КОЛОНОК (УДАЛИТЬ ПОСЛЕ ПЕРВОГО УСПЕШНОГО ЗАПУСКА) ---
-    # Этот блок нужен для того, чтобы добавить новые колонки в уже существующую базу данных,
-    # если она была создана с более старой версией схемы.
-    # После первого успешного деплоя и запуска, когда база данных обновится,
-    # вы можете полностью удалить этот блок `try-except` для каждой колонки.
-    # Если вы удаляли файл базы данных, то этот блок не нужен, но пусть пока побудет.
-
-    # Проверка и добавление колонки coins
-    try:
-        cursor.execute("SELECT coins FROM users LIMIT 1")
-    except sqlite3.OperationalError:
-        cursor.execute("ALTER TABLE users ADD COLUMN coins INTEGER DEFAULT 0")
-        conn.commit()
-        logging.info("Колонка 'coins' добавлена.")
-        
-    # Проверка и добавление колонки last_beer_time
-    try:
-        cursor.execute("SELECT last_beer_time FROM users LIMIT 1")
-    except sqlite3.OperationalError:
-        cursor.execute("ALTER TABLE users ADD COLUMN last_beer_time INTEGER DEFAULT 0")
-        conn.commit()
-        logging.info("Колонка 'last_beer_time' добавлена.")
-
-    # Проверка и добавление колонки last_card_time
-    try:
-        cursor.execute("SELECT last_card_time FROM users LIMIT 1")
-    except sqlite3.OperationalError:
-        cursor.execute("ALTER TABLE users ADD COLUMN last_card_time INTEGER DEFAULT 0")
-        conn.commit()
-        logging.info("Колонка 'last_card_time' добавлена.")
-
-    # Проверка и добавление колонки last_daily_claim_date
-    try:
-        cursor.execute("SELECT last_daily_claim_date FROM users LIMIT 1")
-    except sqlite3.OperationalError:
-        cursor.execute("ALTER TABLE users ADD COLUMN last_daily_claim_date TEXT DEFAULT '1970-01-01'")
-        conn.commit()
-        logging.info("Колонка 'last_daily_claim_date' добавлена.")
-
-    # Проверка и добавление колонки daily_streak
-    try:
-        cursor.execute("SELECT daily_streak FROM users LIMIT 1")
-    except sqlite3.OperationalError:
-        cursor.execute("ALTER TABLE users ADD COLUMN daily_streak INTEGER DEFAULT 0")
-        conn.commit()
-        logging.info("Колонка 'daily_streak' добавлена.")
-
-    # --- КОНЕЦ ВРЕМЕННОГО БЛОКА ---
-
+    # --- ВРЕМЕННЫЙ БЛОК ДЛЯ ДОБАВЛЕНИЯ КОЛОНОК БЫЛ УДАЛЁН ОТСЮДА ---
     conn.close()
     logging.info("База данных успешно инициализирована/обновлена.")
 
@@ -478,17 +429,6 @@ async def cmd_help(message: Message):
         "/help - Показать это сообщение."
     )
     await message.answer(help_text, parse_mode="HTML")
-
-# --- ВРЕМЕННЫЙ ОБРАБОТЧИК ДЛЯ ПОЛУЧЕНИЯ FILE_ID ---
-# !!! ПОСЛЕ ТОГО, КАК ПОЛУЧИТЕ ВСЕ FILE_ID, УДАЛИТЕ ВЕСЬ ЭТОТ БЛОК !!!
-@router.message(F.photo)
-async def get_photo_id(message: Message):
-    if message.photo:
-        file_id = message.photo[-1].file_id # Берем самое большое разрешение фото
-        # ИЗМЕНЕНО: Убрал parse_mode="Markdown" для простоты и избежания ошибок парсинга
-        await message.answer(f"FILE_ID этого фото:\n`{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!")
-        logging.info(f"Received photo FILE_ID: {file_id}")
-# --- КОНЕЦ ВРЕМЕННОГО ОБРАБОТЧИКА ---
 
 
 async def main():
