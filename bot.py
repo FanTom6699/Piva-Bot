@@ -11,7 +11,7 @@ import json
 from typing import Callable, Dict, Any, Awaitable
 
 # --- Сторонние библиотеки ---
-from aiogram import Bot, Dispatcher, Router, F
+from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
@@ -41,13 +41,39 @@ DAILY_BASE_RATING_BONUS = 5
 DAILY_STREAK_COIN_BONUSES = [0, 5, 10, 15, 20] 
 DAILY_MAX_STREAK_BONUS_INDEX = len(DAILY_STREAK_COIN_BONUSES) - 1
 
-# --- File IDs для изображений ---
-# !!! ВСТАВЬТЕ СЮДА РЕАЛЬНЫЕ FILE_ID ВАШИХ КАРТИНОК !!!
 SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ" # Пример
 FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE" # Пример
 COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAID_GjPwr33gJU7xnYbc4VufhMAAWGCoAACqPwxG4FHeEqN8kfzsDpZzAEAAwIAA3kAAzYE" # Пример
 TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ" # Пример
 DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ" # <--- ОБНОВЛЕНО!
+ 
+# --- Фразы для сообщений (для разнообразия) ---
+BEER_WIN_PHRASES = [
+    "🥳🍻 Ты успешно бахнул на <b>+{rating_change}</b> 🍺 пива! Получаешь <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
+    "🎉🍻 Отличный глоток! Твой рейтинг вырос на <b>+{rating_change}</b> 🍺, и ты нашел <b>+{coins_bonus}</b> ⚡ в кармане!",
+    "😌🍻 Удача на твоей стороне! Ты выпил +<b>{rating_change}</b> 🍺, и тебе дают <b>+{coins_bonus}</b> ⚡ за отвагу!",
+    "🌟🍻 Победа! Бармен налил тебе +<b>{rating_change}</b> 🍺, и ты получил <b>+{coins_bonus}</b> ⚡!",
+]
+
+BEER_LOSE_PHRASES_RATING = [
+    "😭💔 Братья Уизли отжали у тебя <b>{rating_loss}</b> 🍺 пива, но ты всё равно получаешь <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
+    "😖🍻 Неудача! Ты пролил <b>{rating_loss}</b> 🍺 рейтинга, но за стойкость держи <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
+    "😡🍻 Обидно! <b>{rating_loss}</b> 🍺 испарилось, но <b>+{coins_bonus}</b> ⚡ всё-таки твои!",
+]
+
+BEER_LOSE_PHRASES_ZERO = [
+    "😭💔 Братья Уизли отжали у тебя все <b>{rating_loss}</b> 🍺 пива! Ты на нуле, но получаешь <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
+    "😖🍻 Полный провал! Весь твой рейтинг (<b>{rating_loss}</b> 🍺) обнулился, но вот тебе <b>+{coins_bonus}</b> ⚡ за попытку!",
+    "😡🍻 Катастрофа! Все <b>{rating_loss}</b> 🍺 исчезли, но держи <b>+{coins_bonus}</b> ⚡ для поднятия духа!",
+]
+
+DAILY_CLAIM_PHRASES = [
+    "🎉 **Ежедневный бонус!** Ты получил <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга!",
+    "🌟 **Доброе утро (или день)!** Твой ежедневный запас: <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга!",
+    "🎁 **Подарок дня!** Сегодня ты богат на <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга!",
+    "🥳 **Бонус активирован!** Твои <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга уже ждут!",
+]
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -91,9 +117,8 @@ def init_db():
         )
     ''')
     conn.commit()
-    # --- ВРЕМЕННЫЙ БЛОК ДЛЯ ДОБАВЛЕНИЯ КОЛОНОК БЫЛ УДАЛЁН ОТСЮДА ---
     conn.close()
-    logging.info("База данных успешно инициализирована/обновлена.")
+    logging.info("База данных успешно инициализирована.")
 
 def get_user_data(user_id: int):
     conn = sqlite3.connect(DB_FILE)
@@ -106,10 +131,9 @@ def get_user_data(user_id: int):
 def add_or_update_user(user_id: int, username: str):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    # Убедимся, что при первом /start даем 50 Фанкоинов (молний)
     cursor.execute(
         "INSERT INTO users (user_id, username, coins) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username = EXCLUDED.username",
-        (user_id, username, 50) 
+        (user_id, username, 50)
     )
     conn.commit()
     conn.close()
@@ -196,17 +220,20 @@ async def cmd_start(message: Message):
     user_data = get_user_data(user_id)
     add_or_update_user(user_id, username)
     if user_data:
-        await message.answer(f"С возвращением, {username}! Рады снова видеть тебя в баре. 🍻")
+        await message.answer(f"👋 С возвращением, <b>{username}</b>! Рады снова видеть тебя в баре. 🍻", parse_mode="HTML")
     else:
         await message.answer(
-            f"Добро пожаловать в бар, {username}! 🍻\n\n"
-            "Здесь мы соревнуемся, кто больше выпьет пива и кто богаче на Фанкоины!\n"
-            "Используй команду /beer, чтобы испытать удачу!\n"
-            "Получи ежедневный бонус: /daily\n"
-            "Попробуй вытянуть карту судьбы: /draw_card\n"
-            "Проверить свой профиль: /profile\n"
-            "Посмотреть на лучших: /top\n"
-            "Нужна помощь? /help"
+            f"👋 Добро пожаловать в бар, <b>{username}</b>! 🍻\n"
+            "══════════════════════\n"
+            "Здесь мы соревнуемся, кто больше выпьет пива и кто богаче на Фанкоины!\n\n"
+            "🔸 Используй команду /beer, чтобы испытать удачу!\n"
+            "🔸 Получи ежедневный бонус: /daily\n"
+            "🔸 Попробуй вытянуть карту судьбы: /draw_card\n"
+            "🔸 Проверить свой профиль: /profile\n"
+            "🔸 Посмотреть на лучших: /top\n"
+            "🔸 Нужна помощь? /help\n"
+            "══════════════════════",
+            parse_mode="HTML"
         )
 
 @router.message(Command("profile"))
@@ -216,10 +243,11 @@ async def cmd_profile(message: Message):
     if user_data:
         username, rating, coins, _, _, _, _ = user_data
         await message.answer(
-            f"👤 <b>Твой профиль:</b>\n\n"
-            f"Имя: <b>{username}</b>\n"
-            f"Рейтинг: <b>{rating}</b> 🍺\n"
-            f"Фанкоины: <b>{coins}</b> ⚡", # ИЗМЕНЕНО: эмодзи для Фанкоинов
+            f"🌟 **Твой профиль, {username}:** 🌟\n"
+            "➖➖➖➖➖➖➖➖➖➖➖➖\n"
+            f"🔸 <b>Рейтинг:</b> <b>{rating}</b> 🍺\n"
+            f"🔸 <b>Фанкоины:</b> <b>{coins}</b> ⚡\n"
+            "➖➖➖➖➖➖➖➖➖➖➖➖",
             parse_mode="HTML"
         )
     else:
@@ -233,14 +261,15 @@ async def cmd_beer(message: Message):
     if not user_data:
         await message.answer("Сначала зарегистрируйся с помощью команды /start.")
         return
-    username, rating, coins, last_beer_time, _, _, _ = user_data
+    _, rating, coins, last_beer_time, _, _, _ = user_data
     time_passed = current_time - last_beer_time
     if time_passed < COOLDOWN_SECONDS:
         time_left = COOLDOWN_SECONDS - time_passed
         time_left_formatted = str(timedelta(seconds=time_left))
         await message.answer_photo(
             photo=COOLDOWN_IMAGE_ID,
-            caption=f"Ты уже недавно пил! ⏳\nПопробуй снова через: <b>{time_left_formatted}</b>",
+            caption=f"⌛ Ты уже недавно пил! ⏳\n"
+                    f"Вернись в бар через: <b>{time_left_formatted}</b>",
             parse_mode="HTML"
         )
         return
@@ -253,18 +282,18 @@ async def cmd_beer(message: Message):
     photo_id = ""
     if roll <= WIN_CHANCE:
         new_rating = rating + rating_change_amount
-        caption_text = f"😏🍻 Ты успешно бахнул на <b>+{rating_change_amount}</b> 🍺 пива! Получаешь <b>+{coin_bonus}</b> ⚡ Фанкоинов!" # ИЗМЕНЕНО: эмодзи для Фанкоинов
+        caption_text = random.choice(BEER_WIN_PHRASES).format(rating_change=rating_change_amount, coins_bonus=coin_bonus)
         photo_id = SUCCESS_IMAGE_ID
     else:
         potential_new_rating = rating - rating_change_amount
         if potential_new_rating < 0:
             actual_loss = rating
             new_rating = 0
-            caption_text = f"🤬🍻 Братья Уизли отжали у тебя все <b>{actual_loss}</b> 🍺 пива! Ты на нуле, но получаешь <b>+{coin_bonus}</b> ⚡ Фанкоинов." # ИЗМЕНЕНО: эмодзи для Фанкоинов
+            caption_text = random.choice(BEER_LOSE_PHRASES_ZERO).format(rating_loss=actual_loss, coins_bonus=coin_bonus)
         else:
             actual_loss = rating_change_amount
             new_rating = potential_new_rating
-            caption_text = f"🤬🍻 Братья Уизли отжали у тебя <b>{actual_loss}</b> 🍺 пива, но ты всё равно получаешь <b>+{coin_bonus}</b> ⚡ Фанкоинов!" # ИЗМЕНЕНО: эмодзи для Фанкоинов
+            caption_text = random.choice(BEER_LOSE_PHRASES_RATING).format(rating_loss=actual_loss, coins_bonus=coin_bonus)
         photo_id = FAIL_IMAGE_ID
     update_user_beer_data(user_id, new_rating, new_coins, current_time)
     await message.answer_photo(photo=photo_id, caption=caption_text, parse_mode="HTML")
@@ -278,7 +307,7 @@ async def cmd_daily(message: Message):
     if not user_data:
         await message.answer("Сначала зарегистрируйся с помощью команды /start.")
         return
-    username, rating, coins, _, _, last_daily_claim_date, daily_streak = user_data
+    _, rating, coins, _, _, last_daily_claim_date, daily_streak = user_data
     if last_daily_claim_date == current_date_str:
         next_day = current_date + timedelta(days=1)
         time_until_midnight = datetime.combine(next_day, dt_time.min) - datetime.now()
@@ -287,23 +316,30 @@ async def cmd_daily(message: Message):
         time_left_formatted = f"{hours}ч {minutes}м"
         await message.answer_photo(
             photo=COOLDOWN_IMAGE_ID,
-            caption=f"⏰ **Рановато!** Ежедневный бонус можно получить завтра. Осталось: <b>{time_left_formatted}</b>",
+            caption=f"⏰ **Рановато!** Ежедневный бонус можно получить завтра.\n"
+                    f"До нового дня осталось: <b>{time_left_formatted}</b>",
             parse_mode="HTML"
         )
         return
+    
+    # Обновление стрика
     if last_daily_claim_date == (current_date - timedelta(days=1)).isoformat():
         new_streak = daily_streak + 1
     else:
-        new_streak = 1
+        new_streak = 1 # Стрик сброшен
+
     streak_bonus_index = min(new_streak - 1, DAILY_MAX_STREAK_BONUS_INDEX)
     bonus_coins = DAILY_BASE_COIN_BONUS + DAILY_STREAK_COIN_BONUSES[streak_bonus_index]
     bonus_rating = DAILY_BASE_RATING_BONUS
     new_coins = coins + bonus_coins
     new_rating = rating + bonus_rating
+    
     update_user_daily_data(user_id, new_rating, new_coins, current_date_str, new_streak)
-    caption_text = f"🎉 **Ежедневный бонус!** Ты получил <b>+{bonus_coins}</b> ⚡ Фанкоинов и <b>+{bonus_rating}</b> 🍺 рейтинга!" # ИЗМЕНЕНО: эмодзи для Фанкоинов
+    
+    caption_text = random.choice(DAILY_CLAIM_PHRASES).format(coins=bonus_coins, rating=bonus_rating)
     if new_streak > 1:
-        caption_text += f"\nТвой стрик: <b>{new_streak} дней</b> (+{DAILY_STREAK_COIN_BONUSES[streak_bonus_index]} ⚡ за серию)!" # ИЗМЕНЕНО: эмодзи для Фанкоинов
+        caption_text += f"\n🔥 Твой стрик: <b>{new_streak} дней</b> (+{DAILY_STREAK_COIN_BONUSES[streak_bonus_index]} ⚡ за серию)!"
+    
     await message.answer_photo(photo=DAILY_IMAGE_ID, caption=caption_text, parse_mode="HTML")
 
 @router.message(Command("draw_card"))
@@ -320,14 +356,15 @@ async def cmd_draw_card(message: Message):
         time_left = CARD_COOLDOWN_SECONDS - time_passed
         time_left_formatted = str(timedelta(seconds=time_left))
         await message.answer_photo(
-            photo=COOLDOWN_IMAGE_ID,
-            caption=f"Колода ещё не перемешана! ⏳\nПопробуй вытянуть карту через: <b>{time_left_formatted}</b>",
+            photo=CARD_COOLDOWN_IMAGE_ID, # <--- ИСПОЛЬЗУЕМ НОВУЮ КАРТИНКУ
+            caption=f"🎴 **Колода ещё не перемешана!** ⏳\n"
+                    f"Попробуй вытянуть следующую карту через: <b>{time_left_formatted}</b>",
             parse_mode="HTML"
         )
         return
     if coins < CARD_DRAW_COST:
         await message.answer(
-            f"Не хватает Фанкоинов! 😔 Для вытягивания карты нужно <b>{CARD_DRAW_COST}</b> ⚡, а у тебя только <b>{coins}</b> ⚡.", # ИЗМЕНЕНО: эмодзи для Фанкоинов
+            f"⚡ Не хватает Фанкоинов! 😔 Для вытягивания карты нужно <b>{CARD_DRAW_COST}</b> ⚡, а у тебя только <b>{coins}</b> ⚡.",
             parse_mode="HTML"
         )
         return
@@ -364,20 +401,26 @@ async def cmd_draw_card(message: Message):
                     other_username = html.escape(other_user_data[0])
                     await bot.send_message(
                         other_user_id,
-                        f"🎉 **Сюрприз!** Игрок <b>{username}</b> был сегодня щедр и угостил тебя <b>+{target_other_coin_change}</b> ⚡ Фанкоинов!", # ИЗМЕНЕНО: эмодзи для Фанкоинов
+                        f"🎉 **Сюрприз!** Игрок <b>{username}</b> был сегодня щедр и угостил тебя <b>+{target_other_coin_change}</b> ⚡ Фанкоинов!",
                         parse_mode="HTML"
                     )
             except Exception as e:
                 logging.warning(f"Не удалось отправить уведомление другому игроку {other_user_id}: {e}")
         else:
             final_description += "\n(Но никого другого в баре не оказалось, чтобы угостить!)"
-            new_coins -= coin_change
-            new_rating = max(0, new_rating - rating_change)
+            # Если нет другого игрока, эффект для него не применяется, и возвращаем трату coins/rating игроку
+            # Если в card_description есть %d, он должен быть заменен на 0, а не на coin_change
+            if chosen_card['id'] == 'generous_neighbor': # Special case for generous_neighbor
+                new_coins = max(0, new_coins + abs(effects.get('coin_change_min',0))) # Возвращаем потраченные монеты
+                new_rating = max(0, new_rating - rating_change) # Отменяем изменение рейтинга
+    
     if '%d' in card_description:
         description_args = []
         try:
             if chosen_card['id'] == 'generous_neighbor':
-                description_args = [abs(effects['coin_change_min']), abs(effects['rating_change_min']), target_other_coin_change]
+                # Если никого нет, угощения не было, поэтому показываем 0 за угощение
+                display_target_other_coin_change = target_other_coin_change if other_user_id_tuple else 0 
+                description_args = [abs(effects['coin_change_min']), abs(effects['rating_change_min']), display_target_other_coin_change]
             elif chosen_card['id'] == 'empty_glass':
                 description_args = [CARD_DRAW_COST]
             else:
@@ -388,12 +431,15 @@ async def cmd_draw_card(message: Message):
             final_description = card_description % tuple(description_args)
         except (TypeError, IndexError) as e:
             logging.warning(f"Ошибка форматирования описания для карты {card_name}: {e}")
+            final_description = card_description # Используем исходное описание, если ошибка форматирования
+
     update_user_card_data(user_id, new_rating, new_coins, current_time, beer_cooldown_reset)
     caption_message = (
-        f"🃏 **Ты вытянул карту: '{card_name}'** 🃏\n\n"
+        f"🃏 **Ты вытянул карту: '{card_name}'** 🃏\n"
+        "✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨\n"
         f"{final_description}\n\n"
-        f"Твой новый рейтинг: <b>{new_rating}</b> 🍺\n"
-        f"Твои новые Фанкоины: <b>{new_coins}</b> ⚡" # ИЗМЕНЕНО: эмодзи для Фанкоинов
+        f"📊 Твой новый рейтинг: <b>{new_rating}</b> 🍺\n"
+        f"💰 Твои новые Фанкоины: <b>{new_coins}</b> ⚡"
     )
     await message.answer_photo(photo=card_image_id, caption=caption_message, parse_mode="HTML")
 
@@ -403,11 +449,17 @@ async def cmd_top(message: Message):
     if not top_users:
         await message.answer("В баре пока никого нет, ты можешь стать первым! 🍻")
         return
-    response_text = "🏆 <b>Топ-10 лучших пивохлёбов:</b>\n\n"
+    
+    response_text = "🏆 **Топ-10 лучших пивохлёбов:** 🏆\n"
+    response_text += "➖➖➖➖➖➖➖➖➖➖➖➖\n"
+    
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     for i, (username, rating) in enumerate(top_users, 1):
-        place_icon = medals.get(i, f"<b>{i}.</b>")
-        response_text += f"{place_icon} {username} — <b>{rating}</b> 🍺\n"
+        place_icon = medals.get(i, f"🔹 <b>{i}.</b>") # Используем 🔹 для мест ниже 3
+        response_text += f"{place_icon} {html.escape(username)} — <b>{rating}</b> 🍺\n"
+    
+    response_text += "➖➖➖➖➖➖➖➖➖➖➖➖"
+    
     await message.answer_photo(
         photo=TOP_IMAGE_ID,
         caption=response_text,
@@ -417,32 +469,20 @@ async def cmd_top(message: Message):
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     help_text = (
-        "<b>🍻 Правила Игры в Пивном Баре 🍻</b>\n\n"
+        "📚 **Правила Игры в Пивном Баре** 🍻\n"
+        "✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨\n"
         "Это простая игра, где ты соревнуешься за самый высокий пивной рейтинг и копишь Фанкоины!\n\n"
-        "<b>Основные команды:</b>\n"
-        "/start - Начать игру и зарегистрироваться (или просто обновить свой профиль)\n"
-        "/beer - Испытать удачу и получить (или потерять) пивной рейтинг. Кулдаун: 3 часа. Даёт Фанкоины.\n"
-        "/daily - Получи ежедневный бонус Фанкоинов и рейтинга. Есть бонусы за серию!\n"
-        "/draw_card - Вытяни карту судьбы за Фанкоины! Кулдаун: 2 часа.\n"
-        "/profile - Посмотреть свой текущий рейтинг и количество Фанкоинов.\n"
-        "/top - Увидеть 10 лучших игроков по пивному рейтингу.\n"
-        "/help - Показать это сообщение."
+        "🚀 **Основные команды:**\n"
+        "🔸 /start - Начать игру и зарегистрироваться (или обновить профиль).\n"
+        "🔸 /beer - Испытай удачу и получи (или потеряй) пивной рейтинг. Кулдаун: 3 часа. Даёт Фанкоины.\n"
+        "🔸 /daily - Получи ежедневный бонус Фанкоинов и рейтинга. Есть бонусы за серию!\n"
+        "🔸 /draw_card - Вытяни карту судьбы за Фанкоины! Кулдаун: 2 часа. <i>(Стоимость: <b>15</b> ⚡)</i>\n"
+        "🔸 /profile - Посмотреть свой текущий рейтинг и количество Фанкоинов.\n"
+        "🔸 /top - Увидеть 10 лучших игроков по пивному рейтингу.\n"
+        "🔸 /help - Показать это сообщение.\n"
+        "✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨"
     )
     await message.answer(help_text, parse_mode="HTML")
-
-@router.message(F.photo)
-async def get_photo_id_temp(message: Message):
-    if message.photo:
-        # Берем самое большое разрешение фото
-        file_id = message.photo[-1].file_id 
-        
-        # Отправляем FILE_ID в ответное сообщение
-        await message.answer(f"FILE_ID этого фото:\n`{file_id}`\n\nНе забудь удалить этот обработчик после получения всех ID!")
-        
-        # Также записываем FILE_ID в логи (это более надежно, так как ответное сообщение может быть очень длинным)
-        logging.info(f"Received photo FILE_ID: {file_id}")
-# --- КОНЕЦ ВРЕМЕННОГО ОБРАБОТЧИКА ---
-
 
 async def main():
     global CARD_DECK
