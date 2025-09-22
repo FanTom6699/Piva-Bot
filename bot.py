@@ -21,41 +21,40 @@ from aiogram.client.default import DefaultBotProperties
 
 # ИМПОРТ ДЛЯ GEMINI
 import google.generativeai as genai
+from google.generativeai.types import ChatSession # Для работы с историей чата
 
 # --- Конфигурация ---
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") # Получаем ключ для Gemini
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 if not BOT_TOKEN:
     raise ValueError("Не найден BOT_TOKEN. Проверьте переменные окружения.")
-# GOOGLE_API_KEY теперь не выбрасывает ошибку, если не найден, а просто логирует предупреждение
-# и отключает функционал Gemini.
 
-DB_FILE = '/data/beer_game.db' # Путь для базы данных на Render
-COOLDOWN_SECONDS = 3 * 60 * 60 # 3 часа
-THROTTLE_TIME = 0.5 # Защита от спама
+DB_FILE = '/data/beer_game.db'
+COOLDOWN_SECONDS = 3 * 60 * 60
+THROTTLE_TIME = 0.5
 
-WIN_CHANCE = 60 # Шанс на выигрыш в /beer
-LOSE_CHANCE = 40 # Шанс на проигрыш в /beer
+WIN_CHANCE = 60
+LOSE_CHANCE = 40
 
-CARD_DRAW_COST = 15 # Стоимость вытягивания карты
-CARD_COOLDOWN_SECONDS = 2 * 60 * 60 # 2 часа
+CARD_DRAW_COST = 15
+CARD_COOLDOWN_SECONDS = 2 * 60 * 60
 
 DAILY_BASE_COIN_BONUS = 20
 DAILY_BASE_RATING_BONUS = 5
-DAILY_STREAK_COIN_BONUSES = [0, 5, 10, 15, 20] # Бонусы за стрик на 1-й, 2-й, 3-й, 4-й, 5-й+ день
+DAILY_STREAK_COIN_BONUSES = [0, 5, 10, 15, 20]
 DAILY_MAX_STREAK_BONUS_INDEX = len(DAILY_STREAK_COIN_BONUSES) - 1
 
 # --- File IDs для изображений (ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ НА ВАШИ РЕАЛЬНЫЕ ID!) ---
 SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ"
 FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE"
-COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAID_GjPwr33gJU7xnYbc4VufhMAAWGCoAACqPwxG4FHeEqN8kfzsDpZzAEAAwIAA3kAAzYE" # Общий кулдаун, например, для /beer
+COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAID_GjPwr33gJU7xnYbc4VufhMAAWGCoAACqPwxG4FHeEqN8kfzsDpZzAEAAwIAA3kAAzYE"
 TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ"
-DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ" # Успешное получение daily
-CARD_COOLDOWN_IMAGE_ID = "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_КАРТ" # <--- НЕ ЗАБУДЬТЕ ВСТАВИТЬ ID
-DAILY_COOLDOWN_IMAGE_ID = "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_DAILY" # <--- НЕ ЗАБУДЬТЕ ВСТАВИТЬ ID (если нужно)
+DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ"
+CARD_COOLDOWN_IMAGE_ID = "ВАШ_ID_ДЛЯ_КУЛДАУНА_КАРТ"
+DAILY_COOLDOWN_IMAGE_ID = "ВАШ_ID_ДЛЯ_КУЛДАУНА_DAILY"
 
 
 # --- Фразы для сообщений (для разнообразия) ---
@@ -89,6 +88,12 @@ DAILY_CLAIM_PHRASES = [
 logging.basicConfig(level=logging.INFO)
 
 CARD_DECK = [] # Глобальная переменная для хранения колоды карт
+
+# --- Хранение истории чатов для Gemini ---
+CHAT_HISTORY_CACHE = TTLCache(maxsize=1000, ttl=600) # Кэш для истории чатов (max 1000 пользователей, история хранится 10 минут)
+# ttl увеличен до 10 минут, чтобы контекст держался дольше
+MAX_CHAT_HISTORY_LENGTH = 10 # Максимальное количество последних сообщений для сохранения контекста (5 пар вопрос-ответ)
+
 
 # --- АНТИСПАМ MIDDLEWARE ---
 class ThrottlingMiddleware(BaseMiddleware):
@@ -257,6 +262,7 @@ class UserRegistrationMiddleware(BaseMiddleware):
             return await handler(event, data)
         
         # Пропускаем временный обработчик FILE_ID, чтобы он всегда работал
+        # (УДАЛИТЕ ЭТОТ БЛОК КОГДА ПОЛУЧИТЕ ВСЕ FILE_ID)
         if event.photo:
              return await handler(event, data)
 
@@ -418,7 +424,7 @@ async def cmd_daily(message: Message):
         minutes, _ = divmod(remainder, 60)
         time_left_formatted = f"{hours}ч {minutes}м"
         await message.answer_photo(
-            photo=DAILY_COOLDOWN_IMAGE_ID if DAILY_COOLDOWN_IMAGE_ID != "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_DAILY" else COOLDOWN_IMAGE_ID, 
+            photo=DAILY_COOLDOWN_IMAGE_ID if DAILY_COOLDOWN_IMAGE_ID != "ВАШ_ID_ДЛЯ_КУЛДАУНА_DAILY" else COOLDOWN_IMAGE_ID, 
             caption=f"⏰ <b>Рановато!</b> Ежедневный бонус можно получить завтра.\n"
                     f"До нового дня осталось: <b>{time_left_formatted}</b>",
         )
@@ -458,7 +464,7 @@ async def cmd_draw_card(message: Message):
         time_left = CARD_COOLDOWN_SECONDS - time_passed
         time_left_formatted = str(timedelta(seconds=time_left)).split('.')[0]
         await message.answer_photo(
-            photo=CARD_COOLDOWN_IMAGE_ID if CARD_COOLDOWN_IMAGE_ID != "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_КАРТ" else COOLDOWN_IMAGE_ID,
+            photo=CARD_COOLDOWN_IMAGE_ID if CARD_COOLDOWN_IMAGE_ID != "ВАШ_ID_ДЛЯ_КУЛДАУНА_КАРТ" else COOLDOWN_IMAGE_ID,
             caption=f"🎴 <b>Колода ещё не перемешана!</b> ⏳\n"
                     f"Попробуй вытянуть следующую карту через: <b>{time_left_formatted}</b>",
         )
@@ -619,52 +625,63 @@ async def cmd_ask_bartender(message: Message):
         await message.answer("Извините, бармен сегодня занят и не может принимать посетителей (ИИ не настроен).")
         return
 
+    user_id = message.from_user.id
     user_question = message.text.replace("/ask_bartender", "").strip()
 
     if not user_question:
         await message.answer("Спроси что-нибудь у бармена, например: <code>/ask_bartender Что нового в таверне?</code>")
         return
 
-    # Системный промпт для ИИ-бармена
-    bartender_prompt = (
-        "Ты — мудрый и весёлый эльф-бармен по имени Элвин в фэнтезийной таверне 'Золотой Дракон'. "
-        "Твоя задача — поддерживать приятную атмосферу, отвечать на вопросы посетителей, "
-        "рассказывать байки, шутить и иногда давать советы. "
-        "Используй дружелюбный, слегка старомодный, фэнтезийный стиль речи. "
-        "Всегда будь вежлив и избегай любой грубости, агрессии или неприличных тем. "
-        "Если вопрос кажется неподобающим, вежливо откажись отвечать, сославшись на правила таверны, "
-        "и предложи задать другой вопрос. Твой мир - Фандомия. "
-        "Старайся давать короткие, но интересные ответы (до 100 слов)."
-    )
+    # Получаем или создаем сессию чата для пользователя
+    if user_id not in CHAT_HISTORY_CACHE:
+        # Инициализируем новую сессию чата, начиная с системного промпта
+        CHAT_HISTORY_CACHE[user_id] = model.start_chat(history=[{
+            "role": "user",
+            "parts": [
+                "Ты — мудрый и весёлый эльф-бармен по имени Элвин в фэнтезийной таверне 'Золотой Дракон'. "
+                "Твоя задача — поддерживать приятную атмосферу, отвечать на вопросы посетителей, "
+                "рассказывать байки, шутить и иногда давать советы. "
+                "Используй дружелюбный, слегка старомодный, фэнтезийный стиль речи, избегая при этом навязчивых предложений. "
+                "Всегда будь вежлив и избегай любой грубости, агрессии или неприличных тем. "
+                "Если вопрос кажется неподобающим, вежливо откажись отвечать, сославшись на правила таверны, "
+                "и предложи задать другой вопрос. Твой мир - Фандомия. "
+                "Старайся давать разнообразные ответы, не повторяясь в предложениях. "
+                "Иногда можешь упомянуть новости из Фандомии, предложить что-то из меню или рассказать короткую байку, "
+                "но не в каждом сообщении. Давай краткие, но содержательные ответы (до 100 слов)."
+            ],
+        },
+        {
+            "role": "model",
+            "parts": ["Рад видеть тебя, добрый путник! Что привело тебя в 'Золотого Дракона' сегодня?"]
+        }
+        ])
     
-    # Объединяем системный промпт с вопросом пользователя
-    full_prompt = f"{bartender_prompt}\n\nВопрос от посетителя: {user_question}"
+    chat_session: ChatSession = CHAT_HISTORY_CACHE[user_id]
 
     try:
-        # Отправляем "печатает..." пока ИИ генерирует ответ
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
         
-        # Используем to_thread для выполнения блокирующего вызова в отдельном потоке
-        response = await asyncio.to_thread(model.generate_content, full_prompt)
+        # Отправляем сообщение в чат-сессию
+        response = await asyncio.to_thread(chat_session.send_message, user_question)
         
-        # Проверяем, есть ли текст в ответе и не был ли он отфильтрован по безопасности
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-            # Извлекаем текст, который может быть в формате Markdown
             ai_response_text = response.candidates[0].content.parts[0].text
-            
-            # Простая замена Markdown на HTML для жирного/курсива.
-            # Для более сложного Markdown может потребоваться библиотека, например `markdown`
             ai_response_text = ai_response_text.replace('**', '<b>').replace('*', '<i>')
             
             await message.reply(f"🤖 <b>Элвин, бармен Фандомия:</b>\n{ai_response_text}")
+            
+            # Обрезаем историю чата, если она слишком длинная, чтобы не превысить лимиты токенов
+            if len(chat_session.history) > MAX_CHAT_HISTORY_LENGTH:
+                chat_session.history = chat_session.history[-MAX_CHAT_HISTORY_LENGTH:]
+
         else:
-            logging.warning(f"Gemini response was empty or filtered for user {message.from_user.id}. Prompt: {full_prompt}")
+            logging.warning(f"Gemini response was empty or filtered for user {user_id}. Prompt: {user_question}")
             await message.reply("🤖 <b>Элвин, бармен Фандомия:</b>\n"
                                 "Прошу прощения, друг, но этот вопрос немного... необычен. "
                                 "Таверна 'Золотой Дракон' хранит свои секреты. Спроси что-нибудь другое.")
 
     except Exception as e:
-        logging.error(f"Ошибка при запросе к Gemini для пользователя {message.from_user.id}: {e}")
+        logging.error(f"Ошибка при запросе к Gemini для пользователя {user_id}: {e}")
         await message.reply("🤖 <b>Элвин, бармен Фандомия:</b>\n"
                             "Упс! Кажется, магический кристалл бармена затуманился. "
                             "Попробуй спросить меня ещё раз через мгновение, пока я его протру.")
