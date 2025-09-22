@@ -521,17 +521,25 @@ async def get_file_id_temp(message: Message):
     Временный обработчик для получения FILE_ID любых отправленных фото.
     УДАЛИТЬ ПОСЛЕ ТОГО, КАК ПОЛУЧИТЕ ВСЕ НЕОБХОДИМЫЕ FILE_ID!
     """
+    file_id = None
     if message.photo:
         file_id = message.photo[-1].file_id # Берем самый большой размер фото
-        await message.answer(f"FILE_ID этой фотографии:\n`{file_id}`", parse_mode="MarkdownV2")
-        logging.info(f"ВРЕМЕННО: Получен FILE_ID: {file_id}")
     elif message.document and message.document.mime_type and message.document.mime_type.startswith('image/'):
         file_id = message.document.file_id
-        await message.answer(f"FILE_ID этого изображения (как документа):\n`{file_id}`", parse_mode="MarkdownV2")
-        logging.info(f"ВРЕМЕННО: Получен FILE_ID (документ-изображение): {file_id}")
-    # Важно: если вы хотите, чтобы бот не обрабатывал другие текстовые сообщения этим обработчиком
-    # и продолжал работу с другими командами, этот catch-all обработчик должен быть ПОСЛЕДНИМ
-    # в списке ваших @router.message() вызовов. В противном случае, он будет перехватывать все.
+
+    if file_id:
+        # Используем HTML-форматирование и экранируем FILE_ID для безопасности
+        # html.escape() заменяет <, >, & на &lt;, &gt;, &amp;
+        # а также может быть полезно экранировать другие символы, если они вызывают проблемы
+        escaped_file_id = html.escape(file_id)
+        response_text = f"FILE_ID этой фотографии:\n<code>{escaped_file_id}</code>"
+        await message.answer(response_text, parse_mode="HTML") # ИЗМЕНИЛИ НА HTML
+        logging.info(f"ВРЕМЕННО: Получен FILE_ID: {file_id}")
+    else:
+        # Этот else может перехватывать другие текстовые сообщения, если он не последний.
+        # Если это проблема, убедитесь, что get_file_id_temp стоит после всех других команд.
+        await message.answer("Пожалуйста, отправь мне именно фотографию (не документ и не другое медиа).")
+
 # --- КОНЕЦ ВРЕМЕННОГО БЛОКА ---
 
 
