@@ -116,35 +116,15 @@ dp = Dispatcher()
 model = None # Переменная для модели ИИ, инициализируем как None
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
-
-    # --- БЛОК ДЛЯ ОТЛАДКИ СПИСКА МОДЕЛЕЙ ---
-    try:
-        logging.info("Попытка получить список доступных моделей Gemini...")
-        list_models_response = genai.list_models()
-        available_models = [m.name for m in list_models_response if 'generateContent' in m.supported_generation_methods]
-
-        if available_models:
-            logging.info(f"Доступные модели для generateContent: {', '.join(available_models)}")
-            if 'models/gemini-pro' in available_models or 'models/gemini-1.0-pro' in available_models:
-                logging.info("Модель 'gemini-pro' (или её псевдоним) найдена в списке доступных!")
-            else:
-                logging.warning("Модель 'gemini-pro' (или её псевдоним) НЕ найдена в списке доступных моделей.")
-        else:
-            logging.warning("Не найдено ни одной модели, поддерживающей generateContent.")
-    except Exception as e:
-        logging.error(f"Ошибка при получении списка моделей Gemini: {e}")
-    # --- КОНЕЦ БЛОКА ДЛЯ ОТЛАДКИ ---
-
-
-    # Настраиваем модель Gemini, можно выбрать gemini-pro для текстовых задач
+    
+    # Настраиваем модель Gemini, теперь используем 'models/gemini-1.5-flash-latest'
     generation_config = {
         "temperature": 0.9, # Креативность: выше = более креативно, ниже = более сфокусировано
         "top_p": 1,
         "top_k": 1,
         "max_output_tokens": 200, # Максимальная длина ответа
     }
-    # !!! Используем 'models/gemini-pro'
-    model = genai.GenerativeModel('models/gemini-1.5-flash-latest', generation_config=generation_config) # Теперь используем доступную Flash модель
+    model = genai.GenerativeModel('models/gemini-1.5-flash-latest', generation_config=generation_config)
     logging.info("Google Gemini API успешно настроен.")
 else:
     # Если GOOGLE_API_KEY не установлен, модель останется None
@@ -371,6 +351,7 @@ async def cmd_profile(message: Message):
             "------------------------------------"
         )
     else:
+        # Это сообщение в теории не должно появиться, т.к. middleware требует /start
         await message.answer("Ты еще не зарегистрирован. Нажми /start.")
 
 @router.message(Command("beer"))
@@ -631,7 +612,7 @@ async def cmd_help(message: Message):
     )
     await message.answer(help_text)
 
-# НОВАЯ КОМАНДА: ИИ-Бармен
+# КОМАНДА: ИИ-Бармен
 @router.message(Command("ask_bartender"))
 async def cmd_ask_bartender(message: Message):
     if not model:
