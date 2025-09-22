@@ -144,7 +144,7 @@ if GOOGLE_API_KEY:
         "max_output_tokens": 200, # Максимальная длина ответа
     }
     # !!! Используем 'models/gemini-pro'
-    model = genai.GenerativeModel('models/gemini-pro', generation_config=generation_config)
+    model = genai.GenerativeModel('models/gemini-1.5-flash-latest', generation_config=generation_config) # Теперь используем доступную Flash модель
     logging.info("Google Gemini API успешно настроен.")
 else:
     # Если GOOGLE_API_KEY не установлен, модель останется None
