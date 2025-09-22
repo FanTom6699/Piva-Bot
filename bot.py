@@ -16,12 +16,11 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
-from cachetools import TTLCache
+from cachetools import TTLCache # Оставляем для ThrottlingMiddleware
 from aiogram.client.default import DefaultBotProperties
 
 # ИМПОРТ ДЛЯ GEMINI
 import google.generativeai as genai
-# УДАЛЕН: from google.generativeai.types import ChatSession # Эту строку удаляем!
 
 # --- Конфигурация ---
 load_dotenv()
@@ -53,8 +52,8 @@ FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQ
 COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAID_GjPwr33gJU7xnYbc4VufhMAAWGCoAACqPwxG4FHeEqN8kfzsDpZzAEAAwIAA3kAAzYE"
 TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ"
 DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ"
-CARD_COOLDOWN_IMAGE_ID = "ВАШ_ID_ДЛЯ_КУЛДАУНА_КАРТ"
-DAILY_COOLDOWN_IMAGE_ID = "ВАШ_ID_ДЛЯ_КУЛДАУНА_DAILY"
+CARD_COOLDOWN_IMAGE_ID = "ВАШ_ID_ДЛЯ_КУЛДАУНА_КАРТ" # ЗАМЕНИТЬ
+DAILY_COOLDOWN_IMAGE_ID = "ВАШ_ID_ДЛЯ_КУЛДАУНА_DAILY" # ЗАМЕНИТЬ
 
 
 # --- Фразы для сообщений (для разнообразия) ---
@@ -90,7 +89,7 @@ logging.basicConfig(level=logging.INFO)
 CARD_DECK = [] # Глобальная переменная для хранения колоды карт
 
 # --- Хранение истории чатов для Gemini ---
-CHAT_HISTORY_CACHE = TTLCache(maxsize=1000, ttl=600) # Кэш для истории чатов (max 1000 пользователей, история хранится 10 минут)
+# CHAT_HISTORY_CACHE = TTLCache(maxsize=1000, ttl=600) # Эту строку удаляем/комментируем
 MAX_CHAT_HISTORY_LENGTH = 10 # Максимальное количество последних сообщений для сохранения контекста (5 пар вопрос-ответ)
 
 
@@ -151,6 +150,18 @@ def init_db():
             daily_streak INTEGER DEFAULT 0
         )
     ''')
+    
+    # --- ДОБАВЛЕННАЯ ЧАСТЬ ДЛЯ НОВОГО ПОЛЯ ---
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN gemini_chat_history TEXT DEFAULT '[]'")
+        logging.info("Поле 'gemini_chat_history' добавлено в таблицу 'users'.")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name: gemini_chat_history" in str(e):
+            logging.info("Поле 'gemini_chat_history' уже существует.")
+        else:
+            logging.error(f"Ошибка при добавлении колонки: {e}")
+    # --- КОНЕЦ ДОБАВЛЕННОЙ ЧАСТИ ---
+
     conn.commit()
     conn.close()
     logging.info("База данных успешно инициализирована.")
@@ -247,6 +258,33 @@ def choose_random_card():
     # Используем random.choices для взвешенного выбора
     chosen_card = random.choices(CARD_DECK, weights=weights, k=1)[0]
     return chosen_card
+
+# --- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОРИЕЙ GEMINI В БД ---
+def load_gemini_history(user_id: int):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT gemini_chat_history FROM users WHERE user_id = ?", (user_id,))
+    history_json = cursor.fetchone()
+    conn.close()
+    if history_json and history_json[0]:
+        try:
+            return json.loads(history_json[0])
+        except json.JSONDecodeError:
+            logging.error(f"Ошибка декодирования JSON истории для пользователя {user_id}. Возвращаю пустую историю.")
+            return []
+    return []
+
+def save_gemini_history(user_id: int, history: list):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET gemini_chat_history = ? WHERE user_id = ?",
+        (json.dumps(history, ensure_ascii=False), user_id) # ensure_ascii=False для сохранения кириллицы
+    )
+    conn.commit()
+    conn.close()
+# --- КОНЕЦ НОВЫХ ФУНКЦИЙ ---
+
 
 # --- Middleware для проверки регистрации пользователя ---
 class UserRegistrationMiddleware(BaseMiddleware):
@@ -631,13 +669,16 @@ async def cmd_ask_bartender(message: Message):
         await message.answer("Спроси что-нибудь у бармена, например: <code>/ask_bartender Что нового в таверне?</code>")
         return
 
-    # Получаем или создаем сессию чата для пользователя
-    if user_id not in CHAT_HISTORY_CACHE:
-        # Инициализируем новую сессию чата, начиная с системного промпта
-        # Используем genai.GenerativeModel.start_chat()
-        # Инициализируем историю прямо здесь, чтобы обеспечить контекст
-        CHAT_HISTORY_CACHE[user_id] = model.start_chat(history=[
-            {"role": "user", "parts": [
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ДЛЯ ПОСТОЯННОЙ ПАМЯТИ ---
+    # Загружаем историю чата из БД
+    current_chat_history = load_gemini_history(user_id)
+    
+    # Если история пуста или не содержит системного промпта, инициализируем её
+    # Проверяем наличие системного промпта по уникальной фразе
+    if not current_chat_history or not any("Ты — мудрый и весёлый эльф-бармен" in str(part) for item in current_chat_history for part in item.get("parts", [])):
+        initial_history_parts = [{
+            "role": "user",
+            "parts": [
                 "Ты — мудрый и весёлый эльф-бармен по имени Элвин в фэнтезийной таверне 'Золотой Дракон'. "
                 "Твоя задача — поддерживать приятную атмосферу, отвечать на вопросы посетителей, "
                 "рассказывать байки, шутить и иногда давать советы. "
@@ -650,11 +691,17 @@ async def cmd_ask_bartender(message: Message):
                 "но не в каждом сообщении. Давай краткие, но содержательные ответы (до 100 слов). "
                 "Если вопрос касается *технических аспектов работы этого 'бота'* или *его команд* (например, 'как играть', 'какие у тебя команды'), "
                 "вежливо объясни, что ты — бармен, а не технический помощник, и предложи гостю посмотреть свитки с правилами, используя команду /help."
-            ]},
-            {"role": "model", "parts": ["Рад видеть тебя, добрый путник! Что привело тебя в 'Золотого Дракона' сегодня?"]}
-        ])
+            ]
+        },
+        {
+            "role": "model",
+            "parts": ["Рад видеть тебя, добрый путник! Что привело тебя в 'Золотого Дракона' сегодня?"]
+        }]
+        current_chat_history = initial_history_parts
     
-    chat_session = CHAT_HISTORY_CACHE[user_id] # Теперь это просто объект ChatSession
+    # Инициализируем новую сессию чата с загруженной историей
+    chat_session = model.start_chat(history=current_chat_history)
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ДЛЯ ПОСТОЯННОЙ ПАМЯТИ ---
 
     try:
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -668,13 +715,18 @@ async def cmd_ask_bartender(message: Message):
             
             await message.reply(f"🤖 <b>Элвин, бармен Фандомия:</b>\n{ai_response_text}")
             
-            # Обрезаем историю чата, если она слишком длинная, чтобы не превысить лимиты токенов
-            # История сессии обновляется автоматически после send_message,
-            # но мы можем обрезать её, если она становится слишком большой.
+            # --- СОХРАНЕНИЕ ОБНОВЛЕННОЙ ИСТОРИИ ---
+            # Получаем актуальную историю из сессии
+            updated_history = chat_session.history
+            
+            # Обрезаем историю чата, если она слишком длинная
             # Каждый 'message' в истории содержит 2 части: 'user' и 'model'
-            if len(chat_session.history) > MAX_CHAT_HISTORY_LENGTH * 2 + 2: # +2 для первоначальных промптов
-                chat_session.history = chat_session.history[-(MAX_CHAT_HISTORY_LENGTH * 2):]
-
+            if len(updated_history) > MAX_CHAT_HISTORY_LENGTH * 2 + 2: # +2 для первоначальных промптов
+                updated_history = updated_history[-(MAX_CHAT_HISTORY_LENGTH * 2):]
+            
+            # Сохраняем обновленную историю в БД
+            save_gemini_history(user_id, updated_history)
+            # --- КОНЕЦ СОХРАНЕНИЯ ---
 
         else:
             logging.warning(f"Gemini response was empty or filtered for user {user_id}. Prompt: {user_question}")
