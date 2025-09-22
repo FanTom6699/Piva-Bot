@@ -514,6 +514,26 @@ async def cmd_help(message: Message):
     )
     await message.answer(help_text, parse_mode="HTML")
 
+# --- ВРЕМЕННЫЙ ОБРАБОТЧИК ДЛЯ ПОЛУЧЕНИЯ FILE_ID (УДАЛИТЬ ПОСЛЕ ИСПОЛЬЗОВАНИЯ!) ---
+@router.message()
+async def get_file_id_temp(message: Message):
+    """
+    Временный обработчик для получения FILE_ID любых отправленных фото.
+    УДАЛИТЬ ПОСЛЕ ТОГО, КАК ПОЛУЧИТЕ ВСЕ НЕОБХОДИМЫЕ FILE_ID!
+    """
+    if message.photo:
+        file_id = message.photo[-1].file_id # Берем самый большой размер фото
+        await message.answer(f"FILE_ID этой фотографии:\n`{file_id}`", parse_mode="MarkdownV2")
+        logging.info(f"ВРЕМЕННО: Получен FILE_ID: {file_id}")
+    elif message.document and message.document.mime_type and message.document.mime_type.startswith('image/'):
+        file_id = message.document.file_id
+        await message.answer(f"FILE_ID этого изображения (как документа):\n`{file_id}`", parse_mode="MarkdownV2")
+        logging.info(f"ВРЕМЕННО: Получен FILE_ID (документ-изображение): {file_id}")
+    # Важно: если вы хотите, чтобы бот не обрабатывал другие текстовые сообщения этим обработчиком
+    # и продолжал работу с другими командами, этот catch-all обработчик должен быть ПОСЛЕДНИМ
+    # в списке ваших @router.message() вызовов. В противном случае, он будет перехватывать все.
+# --- КОНЕЦ ВРЕМЕННОГО БЛОКА ---
+
 
 async def main():
     global CARD_DECK
