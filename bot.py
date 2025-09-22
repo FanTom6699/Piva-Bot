@@ -256,71 +256,77 @@ def choose_random_card():
     # Используем random.choices для взвешенного выбора
     chosen_card = random.choices(CARD_DECK, weights=weights, k=1)[0]
     return chosen_card
+# --- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОРИЕЙ GEMINI В БД (ИСПРАВЛЕНИЕ 3) ---
 
-# --- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОРИЕЙ GEMINI В БД (ИСПРАВЛЕНИЕ 2) ---
-# Дополнительная функция для очистки history от несериализуемых объектов
 def clean_gemini_history_for_saving(history: list) -> list:
     cleaned_history = []
     for item in history:
-        # Всегда преобразуем item в словарь, если это Content объект
-        # или просто используем его, если он уже является словарем (что маловероятно из Gemini history)
-        if hasattr(item, 'to_dict') and callable(item.to_dict):
-            serializable_item = item.to_dict()
-        elif isinstance(item, dict):
-            serializable_item = item
-        else:
-            # Если это что-то другое, пытаемся привести к строке или представить как есть
-            logging.warning(f"Неожиданный тип элемента в истории Gemini: {type(item)}. Пытаемся сериализовать.")
-            serializable_item = str(item) # Fallback, если не dict и не Content
+        cleaned_item_dict = {}
         
-        # Теперь serializable_item гарантированно является словарем (или строкой, но это не наш основной сценарий)
-        # Если это словарь, обрабатываем его части
-        if isinstance(serializable_item, dict):
-            cleaned_item = {'role': serializable_item.get('role')} # Безопасное получение role
-            
-            if 'parts' in serializable_item and isinstance(serializable_item['parts'], list):
-                new_parts = []
-                for part in serializable_item['parts']:
-                    # Если часть является объектом Content, преобразуем её в dict
-                    if hasattr(part, 'to_dict') and callable(part.to_dict):
-                        new_parts.append(part.to_dict())
-                    # А если это просто строка, оставляем как есть
-                    elif isinstance(part, str):
-                        new_parts.append(part)
-                    # Если что-то другое, пытаемся привести к строке или словарю
-                    else:
-                        try:
-                            new_parts.append(part.to_dict() if hasattr(part, 'to_dict') else str(part))
-                        except Exception:
-                            new_parts.append(str(part)) # Fallback to string
-                cleaned_item['parts'] = new_parts
-            else:
-                cleaned_item['parts'] = [] # Если parts нет или они не список, делаем пустым
-            cleaned_history.append(cleaned_item)
+        # Шаг 1: Преобразуем Content объект в dict
+        if hasattr(item, 'to_dict') and callable(item.to_dict):
+            temp_dict = item.to_dict()
+        elif isinstance(item, dict): # Если это уже dict, используем его
+            temp_dict = item
+        else: # Если ни то, ни другое, логируем и пропускаем или обрабатываем как строку (что нежелательно)
+            logging.warning(f"Неожиданный тип корневого элемента в истории Gemini при сохранении: {type(item)}. Пропускаем.")
+            continue # Пропускаем элемент, который не можем обработать
+        
+        # Шаг 2: Извлекаем 'role'
+        if 'role' in temp_dict:
+            cleaned_item_dict['role'] = temp_dict['role']
         else:
-            # Если serializable_item оказался строкой, просто добавляем его (чтобы не потерять данные, но это не идеально)
-            cleaned_history.append(serializable_item) 
+            logging.warning(f"Элемент истории Gemini не содержит 'role': {temp_dict}. Пропускаем.")
+            continue # Пропускаем элемент без роли
+        
+        # Шаг 3: Обрабатываем 'parts'
+        cleaned_item_dict['parts'] = []
+        if 'parts' in temp_dict and isinstance(temp_dict['parts'], list):
+            for part in temp_dict['parts']:
+                if hasattr(part, 'to_dict') and callable(part.to_dict):
+                    # Если part это TextPart или другая часть Content, преобразуем в dict
+                    part_dict = part.to_dict()
+                    # Нас интересует только текст, если он есть
+                    if 'text' in part_dict:
+                        cleaned_item_dict['parts'].append({'text': part_dict['text']})
+                    else:
+                        logging.warning(f"Объект 'part' после to_dict не содержит 'text': {part_dict}")
+                        # Можно добавить другие типы, если они нужны, но для чата обычно только текст.
+                elif isinstance(part, dict) and 'text' in part:
+                    cleaned_item_dict['parts'].append({'text': part['text']})
+                elif isinstance(part, str):
+                    cleaned_item_dict['parts'].append({'text': part}) # Обернуть строку в dict с ключом 'text'
+                else:
+                    logging.warning(f"Неожиданный тип 'part' в истории Gemini при сохранении: {type(part)}. Преобразуем в строку.")
+                    cleaned_item_dict['parts'].append({'text': str(part)}) # Всегда оборачиваем в dict
+        
+        cleaned_history.append(cleaned_item_dict)
     return cleaned_history
 
-# prepare_gemini_history_for_loading остается прежней
 def prepare_gemini_history_for_loading(history_data: list) -> list:
     prepared_history = []
     for item in history_data:
+        # Убедимся, что item это dict перед доступом по ключу
         if isinstance(item, dict) and 'role' in item and 'parts' in item:
             parts_list = []
             for part_item in item['parts']:
+                # Ожидаем, что part_item это dict с ключом 'text'
                 if isinstance(part_item, dict) and 'text' in part_item:
-                    parts_list.append(part_item['text'])
-                elif isinstance(part_item, str):
-                    parts_list.append(part_item)
+                    parts_list.append(genai.types.contents.Part(text=part_item['text']))
+                elif isinstance(part_item, str): # На случай, если каким-то образом сохранилась чистая строка
+                    parts_list.append(genai.types.contents.Part(text=part_item))
                 else:
-                    parts_list.append(str(part_item))
-            prepared_history.append({"role": item['role'], "parts": parts_list})
+                    logging.warning(f"Неожиданный формат 'part_item' при загрузке: {part_item}. Пытаемся преобразовать в строку.")
+                    parts_list.append(genai.types.contents.Part(text=str(part_item)))
+            prepared_history.append(genai.types.contents.Content(role=item['role'], parts=parts_list))
         else:
-            prepared_history.append(item)
+            logging.warning(f"Неожиданный формат 'item' при загрузке истории: {item}. Пропускаем.")
+            # Если элемент не является правильным словарем, мы его пропускаем,
+            # чтобы избежать ошибок при создании Content объекта
+            continue 
     return prepared_history
 
-
+# Функции load_gemini_history и save_gemini_history остаются прежними, так как они вызывают вышеописанные
 def load_gemini_history(user_id: int):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
