@@ -17,16 +17,21 @@ from aiogram.types import Message
 from dotenv import load_dotenv
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from cachetools import TTLCache
-# ДОБАВЛЕНО: для новых настроек parse_mode
 from aiogram.client.default import DefaultBotProperties 
+
+# ИМПОРТ ДЛЯ GEMINI
+import google.generativeai as genai
 
 # --- Конфигурация ---
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") # НОВОЕ: получаем ключ для Gemini
 
 if not BOT_TOKEN:
     raise ValueError("Не найден BOT_TOKEN. Проверьте переменные окружения.")
+if not GOOGLE_API_KEY:
+    logging.warning("GOOGLE_API_KEY не найден. Команда /ask_bartender не будет работать.")
 
 DB_FILE = '/data/beer_game.db' # Путь для базы данных на Render
 COOLDOWN_SECONDS = 3 * 60 * 60 # 3 часа
@@ -44,13 +49,13 @@ DAILY_STREAK_COIN_BONUSES = [0, 5, 10, 15, 20] # Бонусы за стрик н
 DAILY_MAX_STREAK_BONUS_INDEX = len(DAILY_STREAK_COIN_BONUSES) - 1
 
 # --- File IDs для изображений (ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ НА ВАШИ РЕАЛЬНЫЕ ID!) ---
-# Эти ID были предоставлены вами:
 SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ"
 FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE"
-COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAID_GjPwr33gJU7xnYbc4VufhMAAWGCoAACqPwxG4FHeEqN8kfzsDpZzAEAAwIAA3kAAzYE" # Используется для общего кулдуна, в т.ч. карт
+COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAID_GjPwr33gJU7xnYbc4VufhMAAWGCoAACqPwxG4FHeEqN8kfzsDpZzAEAAwIAA3kAAzYE" # Общий кулдаун, например, для /beer
 TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ"
-DAILY_IMAGE_ID = "AgACAgIAAxkBAAIENWjQ2ydocTVaTVwK0-UaoC16BYYHAAK19TEbCquJSskLa9vxP-DLAQADAgADeQADNgQ"
-# Если для карт нужны другие ID, добавьте их сюда и в cards.json
+DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ" # Успешное получение daily
+CARD_COOLDOWN_IMAGE_ID = "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_КАРТ" # <--- НЕ ЗАБУДЬТЕ ВСТАВИТЬ ID
+DAILY_COOLDOWN_IMAGE_ID = "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_DAILY" # <--- НЕ ЗАБУДЬТЕ ВСТАВИТЬ ID (если нужно)
 
 
 # --- Фразы для сообщений (для разнообразия) ---
@@ -103,10 +108,28 @@ class ThrottlingMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 router = Router()
-# ИСПРАВЛЕНО: Новый способ установки parse_mode по умолчанию
 default_properties = DefaultBotProperties(parse_mode="HTML") 
 bot = Bot(token=BOT_TOKEN, default=default_properties) 
 dp = Dispatcher()
+
+# --- Инициализация Google Gemini (после загрузки GOOGLE_API_KEY) ---
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+    # Настраиваем модель Gemini, можно выбрать gemini-pro для текстовых задач
+    # Можно также настроить generation_config и safety_settings
+    # safety_settings по умолчанию уже достаточно хороши для базовой фильтрации
+    generation_config = {
+        "temperature": 0.9, # Креативность: выше = более креативно, ниже = более сфокусировано
+        "top_p": 1,
+        "top_k": 1,
+        "max_output_tokens": 200, # Максимальная длина ответа
+    }
+    model = genai.GenerativeModel('gemini-pro', generation_config=generation_config)
+    logging.info("Google Gemini API успешно настроен.")
+else:
+    model = None
+    logging.warning("Google Gemini API не настроен, так как GOOGLE_API_KEY не указан.")
+
 
 # --- Управление базой данных ---
 def init_db():
@@ -284,7 +307,8 @@ async def cmd_start(message: Message):
         "🔸 /profile - Посмотреть свой профиль.\n"
         "🔸 /top - Увидеть 10 лучших игроков.\n"
         "🔸 /help - Показать это сообщение.\n"
-        "🔸 /menu - Показать это меню снова."
+        "🔸 /menu - Показать это меню снова.\n"
+        "🤖 /ask_bartender [вопрос] - Поговори с барменом Фандомия (ИИ)!" # НОВОЕ: Команда для ИИ
     )
     
     await message.answer(welcome_message + menu_text) # parse_mode="HTML" уже по умолчанию
@@ -305,8 +329,9 @@ async def cmd_menu(message: Message):
         "🔸 /profile - Посмотри свой текущий баланс Фанкоинов и рейтинг.\n"
         "🔸 /top - Узнай, кто занимает почетное место в таблице лидеров Фандомия.\n"
         "🔸 /help - Подробное описание всех команд и правил игры.\n"
-        "🔸 /menu - Открой это меню снова, чтобы вспомнить все команды.\n\n"
-        "<i>Просто введи нужную команду, чтобы продолжить игру!</i>"
+        "🔸 /menu - Открой это меню снова, чтобы вспомнить все команды.\n"
+        "🤖 /ask_bartender [вопрос] - Поговори с барменом Фандомия (ИИ)!" # НОВОЕ: Команда для ИИ
+        "\n\n<i>Просто введи нужную команду, чтобы продолжить игру!</i>"
     )
     await message.answer(menu_text)
 
@@ -392,7 +417,8 @@ async def cmd_daily(message: Message):
         minutes, _ = divmod(remainder, 60)
         time_left_formatted = f"{hours}ч {minutes}м"
         await message.answer_photo(
-            photo=DAILY_IMAGE_ID, # Используем тот же ID для кулдуна
+            # Теперь используем DAILY_COOLDOWN_IMAGE_ID
+            photo=DAILY_COOLDOWN_IMAGE_ID if DAILY_COOLDOWN_IMAGE_ID != "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_DAILY" else COOLDOWN_IMAGE_ID, 
             caption=f"⏰ <b>Рановато!</b> Ежедневный бонус можно получить завтра.\n"
                     f"До нового дня осталось: <b>{time_left_formatted}</b>",
         )
@@ -432,7 +458,8 @@ async def cmd_draw_card(message: Message):
         time_left = CARD_COOLDOWN_SECONDS - time_passed
         time_left_formatted = str(timedelta(seconds=time_left)).split('.')[0]
         await message.answer_photo(
-            photo=COOLDOWN_IMAGE_ID, # Используем тот же ID для кулдуна карт
+            # Теперь используем CARD_COOLDOWN_IMAGE_ID
+            photo=CARD_COOLDOWN_IMAGE_ID if CARD_COOLDOWN_IMAGE_ID != "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_КАРТ" else COOLDOWN_IMAGE_ID, 
             caption=f"🎴 <b>Колода ещё не перемешана!</b> ⏳\n"
                     f"Попробуй вытянуть следующую карту через: <b>{time_left_formatted}</b>",
         )
@@ -582,9 +609,67 @@ async def cmd_help(message: Message):
         "🔸 /top - Увидеть 10 лучших игроков по пивному рейтингу.\n"
         "🔸 /menu - Показать краткое меню команд.\n"
         "🔸 /help - Показать это сообщение.\n"
+        "🤖 /ask_bartender [вопрос] - Поговори с барменом Фандомия (ИИ)!\n" # НОВОЕ: Команда для ИИ
         "------------------------------------"
     )
     await message.answer(help_text)
+
+# НОВАЯ КОМАНДА: ИИ-Бармен
+@router.message(Command("ask_bartender"))
+async def cmd_ask_bartender(message: Message):
+    if not model:
+        await message.answer("Извините, бармен сегодня занят и не может принимать посетителей (ИИ не настроен).")
+        return
+
+    user_question = message.text.replace("/ask_bartender", "").strip()
+
+    if not user_question:
+        await message.answer("Спроси что-нибудь у бармена, например: <code>/ask_bartender Что нового в таверне?</code>")
+        return
+
+    # Системный промпт для ИИ-бармена
+    bartender_prompt = (
+        "Ты — мудрый и весёлый эльф-бармен по имени Элвин в фэнтезийной таверне 'Золотой Дракон'. "
+        "Твоя задача — поддерживать приятную атмосферу, отвечать на вопросы посетителей, "
+        "рассказывать байки, шутить и иногда давать советы. "
+        "Используй дружелюбный, слегка старомодный, фэнтезийный стиль речи. "
+        "Всегда будь вежлив и избегай любой грубости, агрессии или неприличных тем. "
+        "Если вопрос кажется неподобающим, вежливо откажись отвечать, сославшись на правила таверны, "
+        "и предложи задать другой вопрос. Твой мир - Фандомия. "
+        "Старайся давать короткие, но интересные ответы (до 100 слов)."
+    )
+    
+    # Объединяем системный промпт с вопросом пользователя
+    full_prompt = f"{bartender_prompt}\n\nВопрос от посетителя: {user_question}"
+
+    try:
+        # Отправляем "печатает..." пока ИИ генерирует ответ
+        await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+        
+        response = await asyncio.to_thread(model.generate_content, full_prompt)
+        
+        # Проверяем, есть ли текст в ответе и не был ли он отфильтрован по безопасности
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+            # Извлекаем текст, который может быть в формате Markdown
+            ai_response_text = response.candidates[0].content.parts[0].text
+            
+            # Поскольку aiogram по умолчанию HTML, а Gemini часто генерирует Markdown,
+            # мы можем использовать простую замену для жирного текста.
+            # Для более сложного Markdown можно использовать сторонние библиотеки.
+            ai_response_text = ai_response_text.replace('**', '<b>').replace('*', '<i>')
+            
+            await message.reply(f"🤖 <b>Элвин, бармен Фандомия:</b>\n{ai_response_text}")
+        else:
+            logging.warning(f"Gemini response was empty or filtered for user {message.from_user.id}. Prompt: {full_prompt}")
+            await message.reply("🤖 <b>Элвин, бармен Фандомия:</b>\n"
+                                "Прошу прощения, друг, но этот вопрос немного... необычен. "
+                                "Таверна 'Золотой Дракон' хранит свои секреты. Спроси что-нибудь другое.")
+
+    except Exception as e:
+        logging.error(f"Ошибка при запросе к Gemini для пользователя {message.from_user.id}: {e}")
+        await message.reply("🤖 <b>Элвин, бармен Фандомия:</b>\n"
+                            "Упс! Кажется, магический кристалл бармена затуманился. "
+                            "Попробуй спросить меня ещё раз через мгновение, пока я его протру.")
 
 # --- ВРЕМЕННЫЙ ОБРАБОТЧИК ДЛЯ ПОЛУЧЕНИЯ FILE_ID (УДАЛИТЬ ПОСЛЕ ИСПОЛЬЗОВАНИЯ!) ---
 # Этот обработчик срабатывает на любое отправленное фото и возвращает его FILE_ID.
