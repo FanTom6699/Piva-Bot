@@ -17,6 +17,8 @@ from aiogram.types import Message
 from dotenv import load_dotenv
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from cachetools import TTLCache
+# ДОБАВЛЕНО: для новых настроек parse_mode
+from aiogram.client.default import DefaultBotProperties 
 
 # --- Конфигурация ---
 load_dotenv()
@@ -101,8 +103,9 @@ class ThrottlingMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 router = Router()
-# Устанавливаем parse_mode="HTML" по умолчанию для всех сообщений
-bot = Bot(token=BOT_TOKEN, parse_mode="HTML") 
+# ИСПРАВЛЕНО: Новый способ установки parse_mode по умолчанию
+default_properties = DefaultBotProperties(parse_mode="HTML") 
+bot = Bot(token=BOT_TOKEN, default=default_properties) 
 dp = Dispatcher()
 
 # --- Управление базой данных ---
@@ -229,10 +232,8 @@ class UserRegistrationMiddleware(BaseMiddleware):
         # Пропускаем команду /start, чтобы пользователь мог зарегистрироваться
         if event.text and event.text.startswith('/start'):
             return await handler(event, data)
-
+        
         # Пропускаем временный обработчик FILE_ID, чтобы он всегда работал
-        # (Это если бы get_file_id_temp был с @router.message() без F.photo)
-        # В текущей версии F.photo это не так критично, но хорошая практика
         if event.photo: 
              return await handler(event, data)
 
