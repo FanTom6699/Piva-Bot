@@ -11,7 +11,7 @@ import json
 from typing import Callable, Dict, Any, Awaitable
 
 # --- Сторонние библиотеки ---
-from aiogram import Bot, Dispatcher, Router
+from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
@@ -26,27 +26,30 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("Не найден BOT_TOKEN. Проверьте переменные окружения.")
 
-DB_FILE = '/data/beer_game.db'
-COOLDOWN_SECONDS = 3 * 60 * 60
-THROTTLE_TIME = 0.5
+DB_FILE = '/data/beer_game.db' # Путь для базы данных на Render
+COOLDOWN_SECONDS = 3 * 60 * 60 # 3 часа
+THROTTLE_TIME = 0.5 # Защита от спама
 
-WIN_CHANCE = 60
-LOSE_CHANCE = 40
+WIN_CHANCE = 60 # Шанс на выигрыш в /beer
+LOSE_CHANCE = 40 # Шанс на проигрыш в /beer
 
-CARD_DRAW_COST = 15
-CARD_COOLDOWN_SECONDS = 2 * 60 * 60
+CARD_DRAW_COST = 15 # Стоимость вытягивания карты
+CARD_COOLDOWN_SECONDS = 2 * 60 * 60 # 2 часа
 
 DAILY_BASE_COIN_BONUS = 20
 DAILY_BASE_RATING_BONUS = 5
-DAILY_STREAK_COIN_BONUSES = [0, 5, 10, 15, 20] 
+DAILY_STREAK_COIN_BONUSES = [0, 5, 10, 15, 20] # Бонусы за стрик на 1-й, 2-й, 3-й, 4-й, 5-й+ день
 DAILY_MAX_STREAK_BONUS_INDEX = len(DAILY_STREAK_COIN_BONUSES) - 1
 
 # --- File IDs для изображений (ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ НА ВАШИ РЕАЛЬНЫЕ ID!) ---
-SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ" # Пример
-FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE" # Пример
-COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAID_GjPwr33gJU7xnYbc4VufhMAAWGCoAACqPwxG4FHeEqN8kfzsDpZzAEAAwIAA3kAAzYE" # Пример
-TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ" # Пример
-DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ" # <--- ОБНОВЛЕНО!
+# Эти ID были предоставлены вами:
+SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ"
+FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE"
+COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAID_GjPwr33gJU7xnYbc4VufhMAAWGCoAACqPwxG4FHeEqN8kfzsDpZzAEAAwIAA3kAAzYE" # Используется для общего кулдуна, в т.ч. карт
+TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ"
+DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ"
+# Если для карт нужны другие ID, добавьте их сюда и в cards.json
+
 
 # --- Фразы для сообщений (для разнообразия) ---
 BEER_WIN_PHRASES = [
@@ -78,7 +81,7 @@ DAILY_CLAIM_PHRASES = [
 
 logging.basicConfig(level=logging.INFO)
 
-CARD_DECK = []
+CARD_DECK = [] # Глобальная переменная для хранения колоды карт
 
 # --- АНТИСПАМ MIDDLEWARE ---
 class ThrottlingMiddleware(BaseMiddleware):
@@ -93,12 +96,13 @@ class ThrottlingMiddleware(BaseMiddleware):
     ) -> Any:
         user_id = event.from_user.id
         if user_id in self.cache:
-            return
-        self.cache[user_id] = None
+            return # Игнорируем сообщение, если пользователь в кэше троттлинга
+        self.cache[user_id] = None # Добавляем пользователя в кэш
         return await handler(event, data)
 
 router = Router()
-bot = Bot(token=BOT_TOKEN)
+# Устанавливаем parse_mode="HTML" по умолчанию для всех сообщений
+bot = Bot(token=BOT_TOKEN, parse_mode="HTML") 
 dp = Dispatcher()
 
 # --- Управление базой данных ---
@@ -132,9 +136,10 @@ def get_user_data(user_id: int):
 def add_or_update_user(user_id: int, username: str):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    # При регистрации/обновлении username, если пользователя нет, даем 50 монет
     cursor.execute(
         "INSERT INTO users (user_id, username, coins) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username = EXCLUDED.username",
-        (user_id, username, 50) # Изначальные 50 ⚡ Фанкоинов
+        (user_id, username, 50) 
     )
     conn.commit()
     conn.close()
@@ -201,55 +206,123 @@ def load_card_deck():
     except FileNotFoundError:
         logging.error("Файл cards.json не найден! Колода будет пуста.")
         return []
-    except json.JSONDecodeError:
-        logging.error("Ошибка в формате файла cards.json! Проверьте синтаксис JSON.")
+    except json.JSONDecodeError as e:
+        logging.error(f"Ошибка в формате файла cards.json! Проверьте синтаксис JSON: {e}")
         return []
 
 def choose_random_card():
     if not CARD_DECK:
         return None
     weights = [card['weight'] for card in CARD_DECK]
+    # Используем random.choices для взвешенного выбора
     chosen_card = random.choices(CARD_DECK, weights=weights, k=1)[0]
     return chosen_card
+
+# --- Middleware для проверки регистрации пользователя ---
+class UserRegistrationMiddleware(BaseMiddleware):
+    async def __call__(self, handler: Callable[[Message, Dict[str, Any]], Awaitable[Any]], event: Message, data: Dict[str, Any]) -> Any:
+        # Пропускаем, если это не сообщение (например, коллбэк)
+        if not isinstance(event, Message):
+            return await handler(event, data)
+
+        user_id = event.from_user.id
+        # Пропускаем команду /start, чтобы пользователь мог зарегистрироваться
+        if event.text and event.text.startswith('/start'):
+            return await handler(event, data)
+
+        # Пропускаем временный обработчик FILE_ID, чтобы он всегда работал
+        # (Это если бы get_file_id_temp был с @router.message() без F.photo)
+        # В текущей версии F.photo это не так критично, но хорошая практика
+        if event.photo: 
+             return await handler(event, data)
+
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+        user_exists = cursor.fetchone()
+        conn.close()
+
+        if not user_exists:
+            await event.answer("Привет! Прежде чем начать, пожалуйста, используй команду /start.")
+            return # Прерываем обработку, если пользователь не зарегистрирован
+
+        return await handler(event, data)
+
+dp.message.middleware(UserRegistrationMiddleware())
+
 
 # --- Обработчики команд ---
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     user_id = message.from_user.id
-    username = html.escape(message.from_user.full_name) 
-    user_data = get_user_data(user_id)
-    add_or_update_user(user_id, username)
+    username = html.escape(message.from_user.full_name) # Экранируем имя пользователя для HTML безопасности
+    
+    user_data = get_user_data(user_id) # Проверяем, существует ли пользователь
+    add_or_update_user(user_id, username) # Регистрируем или обновляем пользователя
+
+    welcome_message = ""
     if user_data:
-        await message.answer(f"👋 С возвращением, <b>{username}</b>! Рады снова видеть тебя в баре. 🍻", parse_mode="HTML")
-    else:
-        await message.answer(
-            f"👋 Добро пожаловать в бар, <b>{username}</b>! 🍻\n"
-            "------------------------------------\n"
-            "Здесь мы соревнуемся, кто больше выпьет пива и кто богаче на Фанкоины!\n\n"
-            "🔸 Используй команду /beer, чтобы испытать удачу!\n"
-            "🔸 Получи ежедневный бонус: /daily\n"
-            "🔸 Попробуй вытянуть карту судьбы: /draw_card\n"
-            "🔸 Проверить свой профиль: /profile\n"
-            "🔸 Посмотреть на лучших: /top\n"
-            "🔸 Нужна помощь? /help\n"
-            "------------------------------------",
-            parse_mode="HTML"
+        # Сообщение для вернувшегося пользователя
+        welcome_message = (
+            f"👋 С возвращением в бар, <b>{username}</b>!\n\n"
+            "Рады снова тебя видеть. Вот чем можно заняться:"
         )
+    else:
+        # Сообщение для нового пользователя
+        welcome_message = (
+            f"👋 Добро пожаловать в бар, <b>{username}</b>! 🍻\n\n"
+            "Здесь мы соревнуемся, кто больше выпьет пива и кто богаче на Фанкоины!"
+        )
+
+    menu_text = (
+        "\n\n🚀 <b>Основные команды:</b>\n"
+        "🔸 /beer - Испытай удачу и получи рейтинг/Фанкоины.\n"
+        "🔸 /daily - Получи ежедневный бонус.\n"
+        "🔸 /draw_card - Вытяни карту судьбы за Фанкоины.\n"
+        "🔸 /profile - Посмотреть свой профиль.\n"
+        "🔸 /top - Увидеть 10 лучших игроков.\n"
+        "🔸 /help - Показать это сообщение.\n"
+        "🔸 /menu - Показать это меню снова."
+    )
+    
+    await message.answer(welcome_message + menu_text) # parse_mode="HTML" уже по умолчанию
+
+@router.message(Command("menu"))
+async def cmd_menu(message: Message):
+    # Повторяет логику /start для отображения меню, но без логики регистрации
+    user_id = message.from_user.id
+    username = html.escape(message.from_user.full_name)
+    
+    menu_text = (
+        f"<b>Добро пожаловать обратно, {username}!</b> ✨\n\n"
+        "Вот список команд, которые помогут тебе в приключениях по Фандомию:\n\n"
+        "🚀 <b>Основные команды:</b>\n"
+        "🔸 /beer - Закажи кружку пива и получи Фанкоины! Кто знает, может, попадется что-то особенное?\n"
+        "🔸 /daily - Получи ежедневный бонус Фанкоинов и рейтинга. Не забывай про стрик!\n"
+        "🔸 /draw_card - Испытай удачу и вытяни случайную карту из колоды!\n"
+        "🔸 /profile - Посмотри свой текущий баланс Фанкоинов и рейтинг.\n"
+        "🔸 /top - Узнай, кто занимает почетное место в таблице лидеров Фандомия.\n"
+        "🔸 /help - Подробное описание всех команд и правил игры.\n"
+        "🔸 /menu - Открой это меню снова, чтобы вспомнить все команды.\n\n"
+        "<i>Просто введи нужную команду, чтобы продолжить игру!</i>"
+    )
+    await message.answer(menu_text)
+
 
 @router.message(Command("profile"))
 async def cmd_profile(message: Message):
     user_id = message.from_user.id
     user_data = get_user_data(user_id)
+    # Благодаря middleware, user_data всегда будет существовать здесь, но проверка не помешает
     if user_data:
         username, rating, coins, _, _, _, _ = user_data
         await message.answer(
-            f"🌟 <b>Твой профиль, {username}:</b> 🌟\n"
+            f"🌟 <b>Твой профиль, {html.escape(username)}:</b> 🌟\n"
             "------------------------------------\n"
             f"🔸 <b>Рейтинг:</b> <b>{rating}</b> 🍺\n"
-            f"🔸 <b>Фанкоины:</b> <b>{coins}</b> ⚡\n" # Формат: ⚡ число Фанкоинов
-            "------------------------------------",
-            parse_mode="HTML"
+            f"🔸 <b>Фанкоины:</b> <b>{coins}</b> ⚡\n"
+            "------------------------------------"
         )
     else:
         await message.answer("Ты еще не зарегистрирован. Нажми /start.")
@@ -258,37 +331,38 @@ async def cmd_profile(message: Message):
 async def cmd_beer(message: Message):
     user_id = message.from_user.id
     current_time = int(time.time())
-    user_data = get_user_data(user_id)
-    if not user_data:
-        await message.answer("Сначала зарегистрируйся с помощью команды /start.")
-        return
+    user_data = get_user_data(user_id) # user_data всегда будет существовать благодаря middleware
+    
     _, rating, coins, last_beer_time, _, _, _ = user_data
     time_passed = current_time - last_beer_time
+
     if time_passed < COOLDOWN_SECONDS:
         time_left = COOLDOWN_SECONDS - time_passed
-        time_left_formatted = str(timedelta(seconds=time_left))
+        time_left_formatted = str(timedelta(seconds=time_left)).split('.')[0] # Убираем миллисекунды
         await message.answer_photo(
             photo=COOLDOWN_IMAGE_ID,
             caption=f"⌛ Ты уже недавно пил! 🍻\n"
                     f"Вернись в бар через: <b>{time_left_formatted}</b>",
-            parse_mode="HTML"
         )
         return
+    
     roll = random.randint(1, 100)
     rating_change_amount = random.randint(1, 10)
-    coin_bonus = random.randint(1, 2)
+    coin_bonus = random.randint(1, 2) # Бонус Фанкоинов всегда, даже при проигрыше
+    
     new_rating = rating
     new_coins = coins + coin_bonus
     caption_text = ""
     photo_id = ""
+
     if roll <= WIN_CHANCE:
         new_rating = rating + rating_change_amount
         caption_text = random.choice(BEER_WIN_PHRASES).format(rating_change=rating_change_amount, coins_bonus=coin_bonus)
         photo_id = SUCCESS_IMAGE_ID
-    else:
+    else: # Проигрыш
         potential_new_rating = rating - rating_change_amount
         if potential_new_rating < 0:
-            actual_loss = rating
+            actual_loss = rating # Теряем весь текущий рейтинг до 0
             new_rating = 0
             caption_text = random.choice(BEER_LOSE_PHRASES_ZERO).format(rating_loss=actual_loss, coins_bonus=coin_bonus)
         else:
@@ -296,19 +370,20 @@ async def cmd_beer(message: Message):
             new_rating = potential_new_rating
             caption_text = random.choice(BEER_LOSE_PHRASES_RATING).format(rating_loss=actual_loss, coins_bonus=coin_bonus)
         photo_id = FAIL_IMAGE_ID
+    
     update_user_beer_data(user_id, new_rating, new_coins, current_time)
-    await message.answer_photo(photo=photo_id, caption=caption_text, parse_mode="HTML")
+    await message.answer_photo(photo=photo_id, caption=caption_text)
+
 
 @router.message(Command("daily"))
 async def cmd_daily(message: Message):
     user_id = message.from_user.id
     current_date = date.today()
     current_date_str = current_date.isoformat()
-    user_data = get_user_data(user_id)
-    if not user_data:
-        await message.answer("Сначала зарегистрируйся с помощью команды /start.")
-        return
+    user_data = get_user_data(user_id) # user_data всегда будет существовать благодаря middleware
+
     _, rating, coins, _, _, last_daily_claim_date, daily_streak = user_data
+    
     if last_daily_claim_date == current_date_str:
         next_day = current_date + timedelta(days=1)
         time_until_midnight = datetime.combine(next_day, dt_time.min) - datetime.now()
@@ -316,10 +391,9 @@ async def cmd_daily(message: Message):
         minutes, _ = divmod(remainder, 60)
         time_left_formatted = f"{hours}ч {minutes}м"
         await message.answer_photo(
-            photo=COOLDOWN_IMAGE_ID,
+            photo=COOLDOWN_IMAGE_ID, # Используем тот же ID для кулдуна
             caption=f"⏰ <b>Рановато!</b> Ежедневный бонус можно получить завтра.\n"
                     f"До нового дня осталось: <b>{time_left_formatted}</b>",
-            parse_mode="HTML"
         )
         return
     
@@ -327,11 +401,12 @@ async def cmd_daily(message: Message):
     if last_daily_claim_date == (current_date - timedelta(days=1)).isoformat():
         new_streak = daily_streak + 1
     else:
-        new_streak = 1 # Стрик сброшен
+        new_streak = 1 # Стрик сброшен, если день пропущен
 
     streak_bonus_index = min(new_streak - 1, DAILY_MAX_STREAK_BONUS_INDEX)
     bonus_coins = DAILY_BASE_COIN_BONUS + DAILY_STREAK_COIN_BONUSES[streak_bonus_index]
     bonus_rating = DAILY_BASE_RATING_BONUS
+    
     new_coins = coins + bonus_coins
     new_rating = rating + bonus_rating
     
@@ -339,38 +414,38 @@ async def cmd_daily(message: Message):
     
     caption_text = random.choice(DAILY_CLAIM_PHRASES).format(coins=bonus_coins, rating=bonus_rating)
     if new_streak > 1:
-        caption_text += f"\n🔥 Твой стрик: <b>{new_streak} дней</b> (Бонус: <b>+{DAILY_STREAK_COIN_BONUSES[streak_bonus_index]}</b> ⚡ Фанкоинов)!" # Формат: ⚡ число Фанкоинов
+        caption_text += f"\n🔥 Твой стрик: <b>{new_streak} дней</b> (Бонус: <b>+{DAILY_STREAK_COIN_BONUSES[streak_bonus_index]}</b> ⚡ Фанкоинов)!"
     
-    await message.answer_photo(photo=DAILY_IMAGE_ID, caption=caption_text, parse_mode="HTML")
+    await message.answer_photo(photo=DAILY_IMAGE_ID, caption=caption_text)
 
 @router.message(Command("draw_card"))
 async def cmd_draw_card(message: Message):
     user_id = message.from_user.id
     current_time = int(time.time())
-    user_data = get_user_data(user_id)
-    if not user_data:
-        await message.answer("Сначала зарегистрируйся с помощью команды /start.")
-        return
-    username, rating, coins, _, last_card_time, _, _ = user_data
+    user_data = get_user_data(user_id) # user_data всегда будет существовать благодаря middleware
+
+    _, rating, coins, _, last_card_time, _, _ = user_data
     time_passed = current_time - last_card_time
+
     if time_passed < CARD_COOLDOWN_SECONDS:
         time_left = CARD_COOLDOWN_SECONDS - time_passed
-        time_left_formatted = str(timedelta(seconds=time_left))
+        time_left_formatted = str(timedelta(seconds=time_left)).split('.')[0]
         await message.answer_photo(
-            photo=CARD_COOLDOWN_IMAGE_ID,
+            photo=COOLDOWN_IMAGE_ID, # Используем тот же ID для кулдуна карт
             caption=f"🎴 <b>Колода ещё не перемешана!</b> ⏳\n"
                     f"Попробуй вытянуть следующую карту через: <b>{time_left_formatted}</b>",
-            parse_mode="HTML"
         )
         return
+
     if coins < CARD_DRAW_COST:
         await message.answer(
-            f"⚡ Не хватает <b>{CARD_DRAW_COST - coins}</b> ⚡ Фанкоинов! Для вытягивания карты нужно <b>{CARD_DRAW_COST}</b> ⚡ Фанкоинов, а у тебя только <b>{coins}</b> ⚡ Фанкоинов.", # Формат: ⚡ число Фанкоинов
-            parse_mode="HTML"
+            f"⚡ Не хватает <b>{CARD_DRAW_COST - coins}</b> ⚡ Фанкоинов! Для вытягивания карты нужно <b>{CARD_DRAW_COST}</b> ⚡ Фанкоинов, а у тебя только <b>{coins}</b> ⚡ Фанкоинов."
         )
         return
-    new_coins = coins - CARD_DRAW_COST
-    new_rating = rating
+    
+    new_coins = coins - CARD_DRAW_COST # Сразу списываем стоимость карты
+    new_rating = rating # Начальный рейтинг до эффектов карты
+    
     chosen_card = choose_random_card()
     if not chosen_card:
         await message.answer("Ошибка: Колода карт пуста или не загружена. Сообщите администратору.")
@@ -385,18 +460,16 @@ async def cmd_draw_card(message: Message):
     rating_change = random.randint(effects.get('rating_change_min', 0), effects.get('rating_change_max', 0))
     coin_change = random.randint(effects.get('coin_change_min', 0), effects.get('coin_change_max', 0))
     
-    # Сохраняем начальные значения, чтобы вычислить финальный итог для отображения
-    initial_new_rating = new_rating
-    initial_new_coins = new_coins
-
+    # Применяем изменения рейтинга и монет
     new_rating = max(0, new_rating + rating_change)
     new_coins = max(0, new_coins + coin_change)
+    
     beer_cooldown_reset = effects.get('cooldown_reset_beer', False)
     target_other_coin_change = effects.get('target_other_coin_change', 0)
     
-    final_description = card_description
+    final_description = card_description # Исходное описание, если не будет форматирования
     
-    # Обработка карты "Щедрый Сосед"
+    # Обработка карты "Щедрый Сосед" или других карт с динамическим текстом
     other_user_notified = False
     if target_other_coin_change > 0:
         conn = sqlite3.connect(DB_FILE)
@@ -411,45 +484,44 @@ async def cmd_draw_card(message: Message):
             update_other_user_coins(other_user_id, target_other_coin_change)
             other_user_notified = True
             try:
+                # Отправляем уведомление другому пользователю
                 other_user_data = get_user_data(other_user_id)
                 if other_user_data:
                     other_username = html.escape(other_user_data[0])
                     await bot.send_message(
                         other_user_id,
-                        f"🎉 <b>Сюрприз!</b> Игрок <b>{username}</b> был сегодня щедр и угостил тебя <b>+{target_other_coin_change}</b> ⚡ Фанкоинов!", # Формат: ⚡ число Фанкоинов
-                        parse_mode="HTML"
+                        f"🎉 <b>Сюрприз!</b> Игрок <b>{html.escape(user_data[0])}</b> был сегодня щедр и угостил тебя <b>+{target_other_coin_change}</b> ⚡ Фанкоинов!"
                     )
             except Exception as e:
                 logging.warning(f"Не удалось отправить уведомление другому игроку {other_user_id}: {e}")
-        
-    # Форматирование описания карты
+    
+    # Форматирование описания карты, если в нём есть плейсхолдеры %d
     if '%d' in card_description:
         description_args = []
         try:
+            # Логика для конкретных карт
             if chosen_card['id'] == 'generous_neighbor':
-                # Если никого нет, угощения не было, поэтому показываем 0 за угощение
-                display_target_other_coin_change = target_other_coin_change if other_user_notified else 0 
-                description_args = [abs(effects['coin_change_min']), abs(effects['rating_change_min']), display_target_other_coin_change]
+                display_target_other_coin_change = target_other_coin_change if other_user_notified else 0 # Если никого нет, угощения не было
+                description_args = [abs(effects.get('coin_change_min', 0)), abs(effects.get('rating_change_min', 0)), display_target_other_coin_change]
             elif chosen_card['id'] == 'empty_glass':
                 description_args = [CARD_DRAW_COST]
-            else:
-                # Для других карт, если есть изменения, добавляем их
+            else: # Для других карт, если есть изменения, добавляем их
                 if effects.get('rating_change_min') != 0 or effects.get('rating_change_max') != 0:
                     description_args.append(abs(rating_change))
                 if effects.get('coin_change_min') != 0 or effects.get('coin_change_max') != 0:
                     description_args.append(abs(coin_change))
             
             final_description = card_description % tuple(description_args)
-        except (TypeError, IndexError) as e:
+        except (TypeError, IndexError, KeyError) as e:
             logging.warning(f"Ошибка форматирования описания для карты {card_name}: {e}")
             final_description = card_description # Используем исходное описание, если ошибка
-    
+            
     update_user_card_data(user_id, new_rating, new_coins, current_time, beer_cooldown_reset)
     
-    # Вычисление изменений для вывода в конце сообщения
+    # Вычисление фактических изменений для вывода в конце сообщения
     # Здесь нужно учитывать CARD_DRAW_COST, так как он уже вычтен из new_coins
     actual_rating_change = new_rating - rating 
-    actual_coin_change = (new_coins + CARD_DRAW_COST) - coins # + CARD_DRAW_COST, потому что мы его вычли вначале
+    actual_coin_change = (new_coins + CARD_DRAW_COST) - coins # Восстанавливаем списанную стоимость карты для расчета дельты
 
     rating_delta_str = ""
     if actual_rating_change > 0:
@@ -459,19 +531,18 @@ async def cmd_draw_card(message: Message):
 
     coin_delta_str = ""
     if actual_coin_change > 0:
-        coin_delta_str = f" (+<b>{actual_coin_change}</b> ⚡ Фанкоинов)" # Формат: ⚡ число Фанкоинов
+        coin_delta_str = f" (+<b>{actual_coin_change}</b> ⚡ Фанкоинов)"
     elif actual_coin_change < 0:
-        coin_delta_str = f" (-<b>{abs(actual_coin_change)}</b> ⚡ Фанкоинов)" # Формат: ⚡ число Фанкоинов
-
+        coin_delta_str = f" (-<b>{abs(actual_coin_change)}</b> ⚡ Фанкоинов)"
 
     caption_message = (
         f"🃏 <b>Ты вытянул карту: '{card_name}'</b> 🃏\n"
         "------------------------------------\n"
         f"{final_description}\n\n"
         f"📊 Твой рейтинг: <b>{new_rating}</b> 🍺{rating_delta_str}\n"
-        f"💰 Твои Фанкоины: <b>{new_coins}</b> ⚡{coin_delta_str}" # Формат: ⚡ число Фанкоинов
+        f"💰 Твои Фанкоины: <b>{new_coins}</b> ⚡{coin_delta_str}"
     )
-    await message.answer_photo(photo=card_image_id, caption=caption_message, parse_mode="HTML")
+    await message.answer_photo(photo=card_image_id, caption=caption_message)
 
 @router.message(Command("top"))
 async def cmd_top(message: Message):
@@ -485,7 +556,7 @@ async def cmd_top(message: Message):
     
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     for i, (username, rating) in enumerate(top_users, 1):
-        place_icon = medals.get(i, f"🔹 <b>{i}.</b>") 
+        place_icon = medals.get(i, f"🔹 <b>{i}.</b>") # Используем эмодзи для первых трех, затем просто номер
         response_text += f"{place_icon} {html.escape(username)} — <b>{rating}</b> 🍺\n"
     
     response_text += "------------------------------------"
@@ -493,7 +564,6 @@ async def cmd_top(message: Message):
     await message.answer_photo(
         photo=TOP_IMAGE_ID,
         caption=response_text,
-        parse_mode="HTML"
     )
 
 @router.message(Command("help"))
@@ -504,54 +574,41 @@ async def cmd_help(message: Message):
         "Это простая игра, где ты соревнуешься за самый высокий пивной рейтинг и копишь Фанкоины!\n\n"
         "🚀 <b>Основные команды:</b>\n"
         "🔸 /start - Начать игру и зарегистрироваться (или обновить профиль).\n"
-        "🔸 /beer - Испытай удачу и получи (или потеряй) пивной рейтинг. Кулдаун: 3 часа. Даёт ⚡ Фанкоинов.\n" # Формат: ⚡ число Фанкоинов
-        "🔸 /daily - Получи ежедневный бонус ⚡ Фанкоинов и рейтинга. Есть бонусы за серию!\n" # Формат: ⚡ число Фанкоинов
-        "🔸 /draw_card - Вытяни карту судьбы за ⚡ Фанкоины! Кулдаун: 2 часа. <i>(Стоимость: <b>15</b> ⚡ Фанкоинов)</i>\n" # Формат: ⚡ число Фанкоинов
-        "🔸 /profile - Посмотреть свой текущий рейтинг и количество ⚡ Фанкоинов.\n" # Формат: ⚡ число Фанкоинов
+        "🔸 /beer - Испытай удачу и получи (или потеряй) пивной рейтинг. Кулдаун: 3 часа. Даёт ⚡ Фанкоинов.\n"
+        "🔸 /daily - Получи ежедневный бонус ⚡ Фанкоинов и рейтинга. Есть бонусы за серию!\n"
+        "🔸 /draw_card - Вытяни карту судьбы за ⚡ Фанкоины! Кулдаун: 2 часа. <i>(Стоимость: <b>15</b> ⚡ Фанкоинов)</i>\n"
+        "🔸 /profile - Посмотреть свой текущий рейтинг и количество ⚡ Фанкоинов.\n"
         "🔸 /top - Увидеть 10 лучших игроков по пивному рейтингу.\n"
+        "🔸 /menu - Показать краткое меню команд.\n"
         "🔸 /help - Показать это сообщение.\n"
         "------------------------------------"
     )
-    await message.answer(help_text, parse_mode="HTML")
+    await message.answer(help_text)
 
 # --- ВРЕМЕННЫЙ ОБРАБОТЧИК ДЛЯ ПОЛУЧЕНИЯ FILE_ID (УДАЛИТЬ ПОСЛЕ ИСПОЛЬЗОВАНИЯ!) ---
-@router.message()
+# Этот обработчик срабатывает на любое отправленное фото и возвращает его FILE_ID.
+# Убедитесь, что он стоит ПОСЛЕ всех других @router.message() обработчиков, чтобы не перехватывать их!
+@router.message(F.photo) # Фильтр F.photo гарантирует, что он сработает только на фотографии
 async def get_file_id_temp(message: Message):
-    """
-    Временный обработчик для получения FILE_ID любых отправленных фото.
-    УДАЛИТЬ ПОСЛЕ ТОГО, КАК ПОЛУЧИТЕ ВСЕ НЕОБХОДИМЫЕ FILE_ID!
-    """
-    file_id = None
     if message.photo:
-        file_id = message.photo[-1].file_id # Берем самый большой размер фото
-    elif message.document and message.document.mime_type and message.document.mime_type.startswith('image/'):
-        file_id = message.document.file_id
-
-    if file_id:
-        # Используем HTML-форматирование и экранируем FILE_ID для безопасности
-        # html.escape() заменяет <, >, & на &lt;, &gt;, &amp;
-        # а также может быть полезно экранировать другие символы, если они вызывают проблемы
-        escaped_file_id = html.escape(file_id)
+        file_id = message.photo[-1].file_id # Берем FILE_ID фотографии самого большого размера
+        escaped_file_id = html.escape(file_id) # Экранируем FILE_ID для безопасного отображения в HTML
         response_text = f"FILE_ID этой фотографии:\n<code>{escaped_file_id}</code>"
-        await message.answer(response_text, parse_mode="HTML") # ИЗМЕНИЛИ НА HTML
+        await message.answer(response_text) # parse_mode="HTML" уже установлен для бота
         logging.info(f"ВРЕМЕННО: Получен FILE_ID: {file_id}")
-    else:
-        # Этот else может перехватывать другие текстовые сообщения, если он не последний.
-        # Если это проблема, убедитесь, что get_file_id_temp стоит после всех других команд.
-        await message.answer("Пожалуйста, отправь мне именно фотографию (не документ и не другое медиа).")
-
 # --- КОНЕЦ ВРЕМЕННОГО БЛОКА ---
 
 
 async def main():
-    global CARD_DECK
-    init_db()
-    CARD_DECK = load_card_deck()
-    
+    global CARD_DECK # Объявляем, что будем работать с глобальной переменной
+    init_db() # Инициализация базы данных
+    CARD_DECK = load_card_deck() # Загрузка колоды карт из JSON
+
+    # Применяем middleware для защиты от спама ко всем сообщениям, проходящим через роутер
     router.message.middleware(ThrottlingMiddleware(throttle_time=THROTTLE_TIME))
     
-    dp.include_router(router)
-    await dp.start_polling(bot)
+    dp.include_router(router) # Включаем наш роутер в диспетчер
+    await dp.start_polling(bot) # Запускаем бота
 
 if __name__ == '__main__':
     asyncio.run(main())
