@@ -257,16 +257,26 @@ def choose_random_card():
     chosen_card = random.choices(CARD_DECK, weights=weights, k=1)[0]
     return chosen_card
 
-# --- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОРИЕЙ GEMINI В БД (С ИСПРАВЛЕНИЕМ СЕРИАЛИЗАЦИИ) ---
+# --- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОРИЕЙ GEMINI В БД (ИСПРАВЛЕНИЕ) ---
 # Дополнительная функция для очистки history от несериализуемых объектов
 def clean_gemini_history_for_saving(history: list) -> list:
     cleaned_history = []
     for item in history:
-        cleaned_item = item.copy() # Копируем, чтобы не изменять исходный объект
-        if 'parts' in cleaned_item and isinstance(cleaned_item['parts'], list):
+        # Если item является Content объектом, преобразуем его в dict
+        if hasattr(item, 'to_dict') and callable(item.to_dict):
+            temp_item = item.to_dict()
+        else:
+            temp_item = item # Если это уже dict или другой сериализуемый объект
+
+        # Теперь temp_item должен быть dict. Копируем его безопасно.
+        cleaned_item = {}
+        if 'role' in temp_item:
+            cleaned_item['role'] = temp_item['role']
+        
+        if 'parts' in temp_item and isinstance(temp_item['parts'], list):
             new_parts = []
-            for part in cleaned_item['parts']:
-                # Если часть является объектом Content (или другим несериализуемым), преобразуем её в dict
+            for part in temp_item['parts']:
+                # Если часть является объектом Content, преобразуем её в dict
                 if hasattr(part, 'to_dict') and callable(part.to_dict):
                     new_parts.append(part.to_dict())
                 # А если это просто строка, оставляем как есть
@@ -279,29 +289,26 @@ def clean_gemini_history_for_saving(history: list) -> list:
                     except Exception:
                         new_parts.append(str(part)) # Fallback to string
             cleaned_item['parts'] = new_parts
+        
         cleaned_history.append(cleaned_item)
     return cleaned_history
 
-# Дополнительная функция для преобразования history в формат, понятный Gemini при загрузке
+# prepare_gemini_history_for_loading остается прежней
 def prepare_gemini_history_for_loading(history_data: list) -> list:
     prepared_history = []
     for item in history_data:
-        # Gemini требует, чтобы 'parts' был списком строк
         if isinstance(item, dict) and 'role' in item and 'parts' in item:
             parts_list = []
             for part_item in item['parts']:
-                # Если part_item - это dict (результат to_dict()), берем его 'text'
                 if isinstance(part_item, dict) and 'text' in part_item:
                     parts_list.append(part_item['text'])
-                # Если part_item - это уже строка, берем её
                 elif isinstance(part_item, str):
                     parts_list.append(part_item)
-                # На случай других типов (очень маловероятно при текстовом чате)
                 else:
                     parts_list.append(str(part_item))
             prepared_history.append({"role": item['role'], "parts": parts_list})
         else:
-            prepared_history.append(item) # Если формат другой, оставляем как есть
+            prepared_history.append(item)
     return prepared_history
 
 
@@ -314,7 +321,6 @@ def load_gemini_history(user_id: int):
     if history_json and history_json[0]:
         try:
             loaded_history = json.loads(history_json[0])
-            # Преобразуем загруженную историю в формат, который ожидает Gemini
             return prepare_gemini_history_for_loading(loaded_history)
         except json.JSONDecodeError:
             logging.error(f"Ошибка декодирования JSON истории для пользователя {user_id}. Возвращаю пустую историю.")
@@ -324,7 +330,6 @@ def load_gemini_history(user_id: int):
 def save_gemini_history(user_id: int, history: list):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    # Очищаем историю перед сохранением, чтобы все объекты были сериализуемыми
     cleaned_history = clean_gemini_history_for_saving(history)
     cursor.execute(
         "UPDATE users SET gemini_chat_history = ? WHERE user_id = ?",
