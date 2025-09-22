@@ -392,7 +392,7 @@ async def cmd_daily(message: Message):
         minutes, _ = divmod(remainder, 60)
         time_left_formatted = f"{hours}ч {minutes}м"
         await message.answer_photo(
-            photo=COOLDOWN_IMAGE_ID, # Используем тот же ID для кулдуна
+            photo=DAILY_IMAGE_ID, # Используем тот же ID для кулдуна
             caption=f"⏰ <b>Рановато!</b> Ежедневный бонус можно получить завтра.\n"
                     f"До нового дня осталось: <b>{time_left_formatted}</b>",
         )
