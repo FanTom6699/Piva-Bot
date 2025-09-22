@@ -17,7 +17,7 @@ from aiogram.types import Message
 from dotenv import load_dotenv
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from cachetools import TTLCache
-from aiogram.client.default import DefaultBotProperties 
+from aiogram.client.default import DefaultBotProperties
 
 # ИМПОРТ ДЛЯ GEMINI
 import google.generativeai as genai
@@ -26,12 +26,12 @@ import google.generativeai as genai
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") # НОВОЕ: получаем ключ для Gemini
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") # Получаем ключ для Gemini
 
 if not BOT_TOKEN:
     raise ValueError("Не найден BOT_TOKEN. Проверьте переменные окружения.")
-if not GOOGLE_API_KEY:
-    logging.warning("GOOGLE_API_KEY не найден. Команда /ask_bartender не будет работать.")
+# GOOGLE_API_KEY теперь не выбрасывает ошибку, если не найден, а просто логирует предупреждение
+# и отключает функционал Gemini.
 
 DB_FILE = '/data/beer_game.db' # Путь для базы данных на Render
 COOLDOWN_SECONDS = 3 * 60 * 60 # 3 часа
@@ -108,26 +108,46 @@ class ThrottlingMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 router = Router()
-default_properties = DefaultBotProperties(parse_mode="HTML") 
-bot = Bot(token=BOT_TOKEN, default=default_properties) 
+default_properties = DefaultBotProperties(parse_mode="HTML")
+bot = Bot(token=BOT_TOKEN, default=default_properties)
 dp = Dispatcher()
 
-# --- Инициализация Google Gemini (после загрузки GOOGLE_API_KEY) ---
+# --- Инициализация Google Gemini ---
+model = None # Переменная для модели ИИ, инициализируем как None
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
+
+    # --- БЛОК ДЛЯ ОТЛАДКИ СПИСКА МОДЕЛЕЙ ---
+    try:
+        logging.info("Попытка получить список доступных моделей Gemini...")
+        list_models_response = genai.list_models()
+        available_models = [m.name for m in list_models_response if 'generateContent' in m.supported_generation_methods]
+
+        if available_models:
+            logging.info(f"Доступные модели для generateContent: {', '.join(available_models)}")
+            if 'models/gemini-pro' in available_models or 'models/gemini-1.0-pro' in available_models:
+                logging.info("Модель 'gemini-pro' (или её псевдоним) найдена в списке доступных!")
+            else:
+                logging.warning("Модель 'gemini-pro' (или её псевдоним) НЕ найдена в списке доступных моделей.")
+        else:
+            logging.warning("Не найдено ни одной модели, поддерживающей generateContent.")
+    except Exception as e:
+        logging.error(f"Ошибка при получении списка моделей Gemini: {e}")
+    # --- КОНЕЦ БЛОКА ДЛЯ ОТЛАДКИ ---
+
+
     # Настраиваем модель Gemini, можно выбрать gemini-pro для текстовых задач
-    # Можно также настроить generation_config и safety_settings
-    # safety_settings по умолчанию уже достаточно хороши для базовой фильтрации
     generation_config = {
         "temperature": 0.9, # Креативность: выше = более креативно, ниже = более сфокусировано
         "top_p": 1,
         "top_k": 1,
         "max_output_tokens": 200, # Максимальная длина ответа
     }
-    model = genai.GenerativeModel('gemini-pro', generation_config=generation_config)
+    # !!! Используем 'models/gemini-pro'
+    model = genai.GenerativeModel('models/gemini-pro', generation_config=generation_config)
     logging.info("Google Gemini API успешно настроен.")
 else:
-    model = None
+    # Если GOOGLE_API_KEY не установлен, модель останется None
     logging.warning("Google Gemini API не настроен, так как GOOGLE_API_KEY не указан.")
 
 
@@ -165,7 +185,7 @@ def add_or_update_user(user_id: int, username: str):
     # При регистрации/обновлении username, если пользователя нет, даем 50 монет
     cursor.execute(
         "INSERT INTO users (user_id, username, coins) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username = EXCLUDED.username",
-        (user_id, username, 50) 
+        (user_id, username, 50)
     )
     conn.commit()
     conn.close()
@@ -257,7 +277,7 @@ class UserRegistrationMiddleware(BaseMiddleware):
             return await handler(event, data)
         
         # Пропускаем временный обработчик FILE_ID, чтобы он всегда работал
-        if event.photo: 
+        if event.photo:
              return await handler(event, data)
 
         conn = sqlite3.connect(DB_FILE)
@@ -308,7 +328,7 @@ async def cmd_start(message: Message):
         "🔸 /top - Увидеть 10 лучших игроков.\n"
         "🔸 /help - Показать это сообщение.\n"
         "🔸 /menu - Показать это меню снова.\n"
-        "🤖 /ask_bartender [вопрос] - Поговори с барменом Фандомия (ИИ)!" # НОВОЕ: Команда для ИИ
+        "🤖 /ask_bartender [вопрос] - Поговори с барменом Фандомия (ИИ)!"
     )
     
     await message.answer(welcome_message + menu_text) # parse_mode="HTML" уже по умолчанию
@@ -330,7 +350,7 @@ async def cmd_menu(message: Message):
         "🔸 /top - Узнай, кто занимает почетное место в таблице лидеров Фандомия.\n"
         "🔸 /help - Подробное описание всех команд и правил игры.\n"
         "🔸 /menu - Открой это меню снова, чтобы вспомнить все команды.\n"
-        "🤖 /ask_bartender [вопрос] - Поговори с барменом Фандомия (ИИ)!" # НОВОЕ: Команда для ИИ
+        "🤖 /ask_bartender [вопрос] - Поговори с барменом Фандомия (ИИ)!"
         "\n\n<i>Просто введи нужную команду, чтобы продолжить игру!</i>"
     )
     await message.answer(menu_text)
@@ -417,7 +437,6 @@ async def cmd_daily(message: Message):
         minutes, _ = divmod(remainder, 60)
         time_left_formatted = f"{hours}ч {minutes}м"
         await message.answer_photo(
-            # Теперь используем DAILY_COOLDOWN_IMAGE_ID
             photo=DAILY_COOLDOWN_IMAGE_ID if DAILY_COOLDOWN_IMAGE_ID != "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_DAILY" else COOLDOWN_IMAGE_ID, 
             caption=f"⏰ <b>Рановато!</b> Ежедневный бонус можно получить завтра.\n"
                     f"До нового дня осталось: <b>{time_left_formatted}</b>",
@@ -458,8 +477,7 @@ async def cmd_draw_card(message: Message):
         time_left = CARD_COOLDOWN_SECONDS - time_passed
         time_left_formatted = str(timedelta(seconds=time_left)).split('.')[0]
         await message.answer_photo(
-            # Теперь используем CARD_COOLDOWN_IMAGE_ID
-            photo=CARD_COOLDOWN_IMAGE_ID if CARD_COOLDOWN_IMAGE_ID != "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_КАРТ" else COOLDOWN_IMAGE_ID, 
+            photo=CARD_COOLDOWN_IMAGE_ID if CARD_COOLDOWN_IMAGE_ID != "ВСТАВЬТЕ_СЮДА_ID_ДЛЯ_КУЛДАУНА_КАРТ" else COOLDOWN_IMAGE_ID,
             caption=f"🎴 <b>Колода ещё не перемешана!</b> ⏳\n"
                     f"Попробуй вытянуть следующую карту через: <b>{time_left_formatted}</b>",
         )
@@ -547,7 +565,6 @@ async def cmd_draw_card(message: Message):
     update_user_card_data(user_id, new_rating, new_coins, current_time, beer_cooldown_reset)
     
     # Вычисление фактических изменений для вывода в конце сообщения
-    # Здесь нужно учитывать CARD_DRAW_COST, так как он уже вычтен из new_coins
     actual_rating_change = new_rating - rating 
     actual_coin_change = (new_coins + CARD_DRAW_COST) - coins # Восстанавливаем списанную стоимость карты для расчета дельты
 
@@ -609,7 +626,7 @@ async def cmd_help(message: Message):
         "🔸 /top - Увидеть 10 лучших игроков по пивному рейтингу.\n"
         "🔸 /menu - Показать краткое меню команд.\n"
         "🔸 /help - Показать это сообщение.\n"
-        "🤖 /ask_bartender [вопрос] - Поговори с барменом Фандомия (ИИ)!\n" # НОВОЕ: Команда для ИИ
+        "🤖 /ask_bartender [вопрос] - Поговори с барменом Фандомия (ИИ)!\n"
         "------------------------------------"
     )
     await message.answer(help_text)
@@ -646,6 +663,7 @@ async def cmd_ask_bartender(message: Message):
         # Отправляем "печатает..." пока ИИ генерирует ответ
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
         
+        # Используем to_thread для выполнения блокирующего вызова в отдельном потоке
         response = await asyncio.to_thread(model.generate_content, full_prompt)
         
         # Проверяем, есть ли текст в ответе и не был ли он отфильтрован по безопасности
@@ -653,9 +671,8 @@ async def cmd_ask_bartender(message: Message):
             # Извлекаем текст, который может быть в формате Markdown
             ai_response_text = response.candidates[0].content.parts[0].text
             
-            # Поскольку aiogram по умолчанию HTML, а Gemini часто генерирует Markdown,
-            # мы можем использовать простую замену для жирного текста.
-            # Для более сложного Markdown можно использовать сторонние библиотеки.
+            # Простая замена Markdown на HTML для жирного/курсива.
+            # Для более сложного Markdown может потребоваться библиотека, например `markdown`
             ai_response_text = ai_response_text.replace('**', '<b>').replace('*', '<i>')
             
             await message.reply(f"🤖 <b>Элвин, бармен Фандомия:</b>\n{ai_response_text}")
@@ -672,29 +689,26 @@ async def cmd_ask_bartender(message: Message):
                             "Попробуй спросить меня ещё раз через мгновение, пока я его протру.")
 
 # --- ВРЕМЕННЫЙ ОБРАБОТЧИК ДЛЯ ПОЛУЧЕНИЯ FILE_ID (УДАЛИТЬ ПОСЛЕ ИСПОЛЬЗОВАНИЯ!) ---
-# Этот обработчик срабатывает на любое отправленное фото и возвращает его FILE_ID.
-# Убедитесь, что он стоит ПОСЛЕ всех других @router.message() обработчиков, чтобы не перехватывать их!
-@router.message(F.photo) # Фильтр F.photo гарантирует, что он сработает только на фотографии
+@router.message(F.photo)
 async def get_file_id_temp(message: Message):
     if message.photo:
-        file_id = message.photo[-1].file_id # Берем FILE_ID фотографии самого большого размера
-        escaped_file_id = html.escape(file_id) # Экранируем FILE_ID для безопасного отображения в HTML
+        file_id = message.photo[-1].file_id
+        escaped_file_id = html.escape(file_id)
         response_text = f"FILE_ID этой фотографии:\n<code>{escaped_file_id}</code>"
-        await message.answer(response_text) # parse_mode="HTML" уже установлен для бота
+        await message.answer(response_text)
         logging.info(f"ВРЕМЕННО: Получен FILE_ID: {file_id}")
 # --- КОНЕЦ ВРЕМЕННОГО БЛОКА ---
 
 
 async def main():
-    global CARD_DECK # Объявляем, что будем работать с глобальной переменной
-    init_db() # Инициализация базы данных
-    CARD_DECK = load_card_deck() # Загрузка колоды карт из JSON
+    global CARD_DECK
+    init_db()
+    CARD_DECK = load_card_deck()
 
-    # Применяем middleware для защиты от спама ко всем сообщениям, проходящим через роутер
     router.message.middleware(ThrottlingMiddleware(throttle_time=THROTTLE_TIME))
     
-    dp.include_router(router) # Включаем наш роутер в диспетчер
-    await dp.start_polling(bot) # Запускаем бота
+    dp.include_router(router)
+    await dp.start_polling(bot)
 
 if __name__ == '__main__':
     asyncio.run(main())
