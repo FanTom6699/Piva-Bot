@@ -41,37 +41,38 @@ DAILY_BASE_RATING_BONUS = 5
 DAILY_STREAK_COIN_BONUSES = [0, 5, 10, 15, 20] 
 DAILY_MAX_STREAK_BONUS_INDEX = len(DAILY_STREAK_COIN_BONUSES) - 1
 
+# --- File IDs для изображений (ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ НА ВАШИ РЕАЛЬНЫЕ ID!) ---
 SUCCESS_IMAGE_ID = "AgACAgIAAxkBAAICvGjMNGhCINSBAeXyX9w0VddF-C8PAAJt8jEbFbVhSmh8gDAZrTCaAQADAgADeQADNgQ" # Пример
 FAIL_IMAGE_ID = "AgACAgIAAxkBAAICwGjMNRAnAAHo1rDMPfaF_HUa0WzxaAACcvIxGxW1YUo5jEQQRkt4kgEAAwIAA3kAAzYE" # Пример
 COOLDOWN_IMAGE_ID = "AgACAgIAAxkBAAID_GjPwr33gJU7xnYbc4VufhMAAWGCoAACqPwxG4FHeEqN8kfzsDpZzAEAAwIAA3kAAzYE" # Пример
 TOP_IMAGE_ID = "AgACAgIAAxkBAAICw2jMNUqWi1d-ctjc67_Ryg9uLmBHAAJC-TEbLqthSiv8cCgp6EMnAQADAgADeQADNgQ" # Пример
 DAILY_IMAGE_ID = "AgACAgIAAxkBAAID7mjPujl6mjX5QYH5mW26gwuAY2xSAAJt9jEbkeGASnOosg9TSbYvAQADAgADeQADNgQ" # <--- ОБНОВЛЕНО!
- 
+
 # --- Фразы для сообщений (для разнообразия) ---
 BEER_WIN_PHRASES = [
-    "🥳🍻 Ты успешно бахнул на <b>+{rating_change}</b> 🍺 пива! Получаешь <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
-    "🎉🍻 Отличный глоток! Твой рейтинг вырос на <b>+{rating_change}</b> 🍺, и ты нашел <b>+{coins_bonus}</b> ⚡ в кармане!",
-    "😌🍻 Удача на твоей стороне! Ты выпил +<b>{rating_change}</b> 🍺, и тебе дают <b>+{coins_bonus}</b> ⚡ за отвагу!",
-    "🌟🍻 Победа! Бармен налил тебе +<b>{rating_change}</b> 🍺, и ты получил <b>+{coins_bonus}</b> ⚡!",
+    "🥳🍻 Ты успешно бахнул на <b>+{rating_change}</b> 🍺! Получаешь <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
+    "🎉🍻 Отличный глоток! Твой рейтинг вырос на <b>+{rating_change}</b> 🍺, и ты нашел <b>+{coins_bonus}</b> ⚡ Фанкоинов в кармане!",
+    "😌🍻 Удача на твоей стороне! Ты выпил +<b>{rating_change}</b> 🍺, и тебе дают <b>+{coins_bonus}</b> ⚡ Фанкоинов за отвагу!",
+    "🌟🍻 Победа! Бармен налил тебе +<b>{rating_change}</b> 🍺, и ты получил <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
 ]
 
 BEER_LOSE_PHRASES_RATING = [
-    "😭💔 Братья Уизли отжали у тебя <b>{rating_loss}</b> 🍺 пива, но ты всё равно получаешь <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
+    "😭💔 Братья Уизли отжали у тебя <b>{rating_loss}</b> 🍺, но ты всё равно получаешь <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
     "😖🍻 Неудача! Ты пролил <b>{rating_loss}</b> 🍺 рейтинга, но за стойкость держи <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
-    "😡🍻 Обидно! <b>{rating_loss}</b> 🍺 испарилось, но <b>+{coins_bonus}</b> ⚡ всё-таки твои!",
+    "😡🍻 Обидно! <b>{rating_loss}</b> 🍺 испарилось, но <b>+{coins_bonus}</b> ⚡ Фанкоинов всё-таки твои!",
 ]
 
 BEER_LOSE_PHRASES_ZERO = [
-    "😭💔 Братья Уизли отжали у тебя все <b>{rating_loss}</b> 🍺 пива! Ты на нуле, но получаешь <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
-    "😖🍻 Полный провал! Весь твой рейтинг (<b>{rating_loss}</b> 🍺) обнулился, но вот тебе <b>+{coins_bonus}</b> ⚡ за попытку!",
-    "😡🍻 Катастрофа! Все <b>{rating_loss}</b> 🍺 исчезли, но держи <b>+{coins_bonus}</b> ⚡ для поднятия духа!",
+    "😭💔 Братья Уизли отжали у тебя все <b>{rating_loss}</b> 🍺! Ты на нуле, но получаешь <b>+{coins_bonus}</b> ⚡ Фанкоинов!",
+    "😖🍻 Полный провал! Весь твой рейтинг (<b>{rating_loss}</b> 🍺) обнулился, но вот тебе <b>+{coins_bonus}</b> ⚡ Фанкоинов за попытку!",
+    "😡🍻 Катастрофа! Все <b>{rating_loss}</b> 🍺 исчезли, но держи <b>+{coins_bonus}</b> ⚡ Фанкоинов для поднятия духа!",
 ]
 
 DAILY_CLAIM_PHRASES = [
-    "🎉 **Ежедневный бонус!** Ты получил <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга!",
-    "🌟 **Доброе утро (или день)!** Твой ежедневный запас: <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга!",
-    "🎁 **Подарок дня!** Сегодня ты богат на <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга!",
-    "🥳 **Бонус активирован!** Твои <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга уже ждут!",
+    "🎉 <b>Ежедневный бонус!</b> Ты получил <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга!",
+    "🌟 <b>Доброе утро (или день)!</b> Твой ежедневный запас: <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга!",
+    "🎁 <b>Подарок дня!</b> Сегодня ты богат на <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга!",
+    "🥳 <b>Бонус активирован!</b> Твои <b>+{coins}</b> ⚡ Фанкоинов и <b>+{rating}</b> 🍺 рейтинга уже ждут!",
 ]
 
 
@@ -133,7 +134,7 @@ def add_or_update_user(user_id: int, username: str):
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO users (user_id, username, coins) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username = EXCLUDED.username",
-        (user_id, username, 50)
+        (user_id, username, 50) # Изначальные 50 ⚡ Фанкоинов
     )
     conn.commit()
     conn.close()
@@ -224,7 +225,7 @@ async def cmd_start(message: Message):
     else:
         await message.answer(
             f"👋 Добро пожаловать в бар, <b>{username}</b>! 🍻\n"
-            "══════════════════════\n"
+            "------------------------------------\n"
             "Здесь мы соревнуемся, кто больше выпьет пива и кто богаче на Фанкоины!\n\n"
             "🔸 Используй команду /beer, чтобы испытать удачу!\n"
             "🔸 Получи ежедневный бонус: /daily\n"
@@ -232,7 +233,7 @@ async def cmd_start(message: Message):
             "🔸 Проверить свой профиль: /profile\n"
             "🔸 Посмотреть на лучших: /top\n"
             "🔸 Нужна помощь? /help\n"
-            "══════════════════════",
+            "------------------------------------",
             parse_mode="HTML"
         )
 
@@ -243,11 +244,11 @@ async def cmd_profile(message: Message):
     if user_data:
         username, rating, coins, _, _, _, _ = user_data
         await message.answer(
-            f"🌟 **Твой профиль, {username}:** 🌟\n"
-            "➖➖➖➖➖➖➖➖➖➖➖➖\n"
+            f"🌟 <b>Твой профиль, {username}:</b> 🌟\n"
+            "------------------------------------\n"
             f"🔸 <b>Рейтинг:</b> <b>{rating}</b> 🍺\n"
-            f"🔸 <b>Фанкоины:</b> <b>{coins}</b> ⚡\n"
-            "➖➖➖➖➖➖➖➖➖➖➖➖",
+            f"🔸 <b>Фанкоины:</b> <b>{coins}</b> ⚡\n" # Формат: ⚡ число Фанкоинов
+            "------------------------------------",
             parse_mode="HTML"
         )
     else:
@@ -268,7 +269,7 @@ async def cmd_beer(message: Message):
         time_left_formatted = str(timedelta(seconds=time_left))
         await message.answer_photo(
             photo=COOLDOWN_IMAGE_ID,
-            caption=f"⌛ Ты уже недавно пил! ⏳\n"
+            caption=f"⌛ Ты уже недавно пил! 🍻\n"
                     f"Вернись в бар через: <b>{time_left_formatted}</b>",
             parse_mode="HTML"
         )
@@ -316,7 +317,7 @@ async def cmd_daily(message: Message):
         time_left_formatted = f"{hours}ч {minutes}м"
         await message.answer_photo(
             photo=COOLDOWN_IMAGE_ID,
-            caption=f"⏰ **Рановато!** Ежедневный бонус можно получить завтра.\n"
+            caption=f"⏰ <b>Рановато!</b> Ежедневный бонус можно получить завтра.\n"
                     f"До нового дня осталось: <b>{time_left_formatted}</b>",
             parse_mode="HTML"
         )
@@ -338,7 +339,7 @@ async def cmd_daily(message: Message):
     
     caption_text = random.choice(DAILY_CLAIM_PHRASES).format(coins=bonus_coins, rating=bonus_rating)
     if new_streak > 1:
-        caption_text += f"\n🔥 Твой стрик: <b>{new_streak} дней</b> (+{DAILY_STREAK_COIN_BONUSES[streak_bonus_index]} ⚡ за серию)!"
+        caption_text += f"\n🔥 Твой стрик: <b>{new_streak} дней</b> (Бонус: <b>+{DAILY_STREAK_COIN_BONUSES[streak_bonus_index]}</b> ⚡ Фанкоинов)!" # Формат: ⚡ число Фанкоинов
     
     await message.answer_photo(photo=DAILY_IMAGE_ID, caption=caption_text, parse_mode="HTML")
 
@@ -356,15 +357,15 @@ async def cmd_draw_card(message: Message):
         time_left = CARD_COOLDOWN_SECONDS - time_passed
         time_left_formatted = str(timedelta(seconds=time_left))
         await message.answer_photo(
-            photo=CARD_COOLDOWN_IMAGE_ID, # <--- ИСПОЛЬЗУЕМ НОВУЮ КАРТИНКУ
-            caption=f"🎴 **Колода ещё не перемешана!** ⏳\n"
+            photo=CARD_COOLDOWN_IMAGE_ID,
+            caption=f"🎴 <b>Колода ещё не перемешана!</b> ⏳\n"
                     f"Попробуй вытянуть следующую карту через: <b>{time_left_formatted}</b>",
             parse_mode="HTML"
         )
         return
     if coins < CARD_DRAW_COST:
         await message.answer(
-            f"⚡ Не хватает Фанкоинов! 😔 Для вытягивания карты нужно <b>{CARD_DRAW_COST}</b> ⚡, а у тебя только <b>{coins}</b> ⚡.",
+            f"⚡ Не хватает <b>{CARD_DRAW_COST - coins}</b> ⚡ Фанкоинов! Для вытягивания карты нужно <b>{CARD_DRAW_COST}</b> ⚡ Фанкоинов, а у тебя только <b>{coins}</b> ⚡ Фанкоинов.", # Формат: ⚡ число Фанкоинов
             parse_mode="HTML"
         )
         return
@@ -375,71 +376,100 @@ async def cmd_draw_card(message: Message):
         await message.answer("Ошибка: Колода карт пуста или не загружена. Сообщите администратору.")
         logging.error("CARD_DECK is empty or not loaded.")
         return
+    
     card_name = chosen_card['name']
     card_description = chosen_card['description']
     card_image_id = chosen_card['image_id']
     effects = chosen_card['effects']
+    
     rating_change = random.randint(effects.get('rating_change_min', 0), effects.get('rating_change_max', 0))
     coin_change = random.randint(effects.get('coin_change_min', 0), effects.get('coin_change_max', 0))
+    
+    # Сохраняем начальные значения, чтобы вычислить финальный итог для отображения
+    initial_new_rating = new_rating
+    initial_new_coins = new_coins
+
     new_rating = max(0, new_rating + rating_change)
     new_coins = max(0, new_coins + coin_change)
     beer_cooldown_reset = effects.get('cooldown_reset_beer', False)
     target_other_coin_change = effects.get('target_other_coin_change', 0)
+    
     final_description = card_description
+    
+    # Обработка карты "Щедрый Сосед"
+    other_user_notified = False
     if target_other_coin_change > 0:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
+        # Ищем другого случайного пользователя, исключая текущего
         cursor.execute("SELECT user_id FROM users WHERE user_id != ? ORDER BY RANDOM() LIMIT 1", (user_id,))
         other_user_id_tuple = cursor.fetchone()
         conn.close()
+
         if other_user_id_tuple:
             other_user_id = other_user_id_tuple[0]
             update_other_user_coins(other_user_id, target_other_coin_change)
+            other_user_notified = True
             try:
                 other_user_data = get_user_data(other_user_id)
                 if other_user_data:
                     other_username = html.escape(other_user_data[0])
                     await bot.send_message(
                         other_user_id,
-                        f"🎉 **Сюрприз!** Игрок <b>{username}</b> был сегодня щедр и угостил тебя <b>+{target_other_coin_change}</b> ⚡ Фанкоинов!",
+                        f"🎉 <b>Сюрприз!</b> Игрок <b>{username}</b> был сегодня щедр и угостил тебя <b>+{target_other_coin_change}</b> ⚡ Фанкоинов!", # Формат: ⚡ число Фанкоинов
                         parse_mode="HTML"
                     )
             except Exception as e:
                 logging.warning(f"Не удалось отправить уведомление другому игроку {other_user_id}: {e}")
-        else:
-            final_description += "\n(Но никого другого в баре не оказалось, чтобы угостить!)"
-            # Если нет другого игрока, эффект для него не применяется, и возвращаем трату coins/rating игроку
-            # Если в card_description есть %d, он должен быть заменен на 0, а не на coin_change
-            if chosen_card['id'] == 'generous_neighbor': # Special case for generous_neighbor
-                new_coins = max(0, new_coins + abs(effects.get('coin_change_min',0))) # Возвращаем потраченные монеты
-                new_rating = max(0, new_rating - rating_change) # Отменяем изменение рейтинга
-    
+        
+    # Форматирование описания карты
     if '%d' in card_description:
         description_args = []
         try:
             if chosen_card['id'] == 'generous_neighbor':
                 # Если никого нет, угощения не было, поэтому показываем 0 за угощение
-                display_target_other_coin_change = target_other_coin_change if other_user_id_tuple else 0 
+                display_target_other_coin_change = target_other_coin_change if other_user_notified else 0 
                 description_args = [abs(effects['coin_change_min']), abs(effects['rating_change_min']), display_target_other_coin_change]
             elif chosen_card['id'] == 'empty_glass':
                 description_args = [CARD_DRAW_COST]
             else:
+                # Для других карт, если есть изменения, добавляем их
                 if effects.get('rating_change_min') != 0 or effects.get('rating_change_max') != 0:
                     description_args.append(abs(rating_change))
                 if effects.get('coin_change_min') != 0 or effects.get('coin_change_max') != 0:
                     description_args.append(abs(coin_change))
+            
             final_description = card_description % tuple(description_args)
         except (TypeError, IndexError) as e:
             logging.warning(f"Ошибка форматирования описания для карты {card_name}: {e}")
-            final_description = card_description # Используем исходное описание, если ошибка форматирования
-
+            final_description = card_description # Используем исходное описание, если ошибка
+    
     update_user_card_data(user_id, new_rating, new_coins, current_time, beer_cooldown_reset)
+    
+    # Вычисление изменений для вывода в конце сообщения
+    # Здесь нужно учитывать CARD_DRAW_COST, так как он уже вычтен из new_coins
+    actual_rating_change = new_rating - rating 
+    actual_coin_change = (new_coins + CARD_DRAW_COST) - coins # + CARD_DRAW_COST, потому что мы его вычли вначале
+
+    rating_delta_str = ""
+    if actual_rating_change > 0:
+        rating_delta_str = f" (+<b>{actual_rating_change}</b> 🍺)"
+    elif actual_rating_change < 0:
+        rating_delta_str = f" (-<b>{abs(actual_rating_change)}</b> 🍺)"
+
+    coin_delta_str = ""
+    if actual_coin_change > 0:
+        coin_delta_str = f" (+<b>{actual_coin_change}</b> ⚡ Фанкоинов)" # Формат: ⚡ число Фанкоинов
+    elif actual_coin_change < 0:
+        coin_delta_str = f" (-<b>{abs(actual_coin_change)}</b> ⚡ Фанкоинов)" # Формат: ⚡ число Фанкоинов
+
+
     caption_message = (
-        f"🃏 **Ты вытянул карту: '{card_name}'** 🃏\n"
-        "✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨\n"
+        f"🃏 <b>Ты вытянул карту: '{card_name}'</b> 🃏\n"
+        "------------------------------------\n"
         f"{final_description}\n\n"
-        f"📊 Твой новый рейтинг: <b>{new_rating}</b> 🍺\n"
-        f"💰 Твои новые Фанкоины: <b>{new_coins}</b> ⚡"
+        f"📊 Твой рейтинг: <b>{new_rating}</b> 🍺{rating_delta_str}\n"
+        f"💰 Твои Фанкоины: <b>{new_coins}</b> ⚡{coin_delta_str}" # Формат: ⚡ число Фанкоинов
     )
     await message.answer_photo(photo=card_image_id, caption=caption_message, parse_mode="HTML")
 
@@ -450,15 +480,15 @@ async def cmd_top(message: Message):
         await message.answer("В баре пока никого нет, ты можешь стать первым! 🍻")
         return
     
-    response_text = "🏆 **Топ-10 лучших пивохлёбов:** 🏆\n"
-    response_text += "➖➖➖➖➖➖➖➖➖➖➖➖\n"
+    response_text = "🏆 <b>Топ-10 лучших пивохлёбов:</b> 🏆\n"
+    response_text += "------------------------------------\n"
     
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     for i, (username, rating) in enumerate(top_users, 1):
-        place_icon = medals.get(i, f"🔹 <b>{i}.</b>") # Используем 🔹 для мест ниже 3
+        place_icon = medals.get(i, f"🔹 <b>{i}.</b>") 
         response_text += f"{place_icon} {html.escape(username)} — <b>{rating}</b> 🍺\n"
     
-    response_text += "➖➖➖➖➖➖➖➖➖➖➖➖"
+    response_text += "------------------------------------"
     
     await message.answer_photo(
         photo=TOP_IMAGE_ID,
@@ -469,20 +499,21 @@ async def cmd_top(message: Message):
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     help_text = (
-        "📚 **Правила Игры в Пивном Баре** 🍻\n"
-        "✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨\n"
+        "📚 <b>Правила Игры в Пивном Баре</b> 🍻\n"
+        "------------------------------------\n"
         "Это простая игра, где ты соревнуешься за самый высокий пивной рейтинг и копишь Фанкоины!\n\n"
-        "🚀 **Основные команды:**\n"
+        "🚀 <b>Основные команды:</b>\n"
         "🔸 /start - Начать игру и зарегистрироваться (или обновить профиль).\n"
-        "🔸 /beer - Испытай удачу и получи (или потеряй) пивной рейтинг. Кулдаун: 3 часа. Даёт Фанкоины.\n"
-        "🔸 /daily - Получи ежедневный бонус Фанкоинов и рейтинга. Есть бонусы за серию!\n"
-        "🔸 /draw_card - Вытяни карту судьбы за Фанкоины! Кулдаун: 2 часа. <i>(Стоимость: <b>15</b> ⚡)</i>\n"
-        "🔸 /profile - Посмотреть свой текущий рейтинг и количество Фанкоинов.\n"
+        "🔸 /beer - Испытай удачу и получи (или потеряй) пивной рейтинг. Кулдаун: 3 часа. Даёт ⚡ Фанкоинов.\n" # Формат: ⚡ число Фанкоинов
+        "🔸 /daily - Получи ежедневный бонус ⚡ Фанкоинов и рейтинга. Есть бонусы за серию!\n" # Формат: ⚡ число Фанкоинов
+        "🔸 /draw_card - Вытяни карту судьбы за ⚡ Фанкоины! Кулдаун: 2 часа. <i>(Стоимость: <b>15</b> ⚡ Фанкоинов)</i>\n" # Формат: ⚡ число Фанкоинов
+        "🔸 /profile - Посмотреть свой текущий рейтинг и количество ⚡ Фанкоинов.\n" # Формат: ⚡ число Фанкоинов
         "🔸 /top - Увидеть 10 лучших игроков по пивному рейтингу.\n"
         "🔸 /help - Показать это сообщение.\n"
-        "✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨"
+        "------------------------------------"
     )
     await message.answer(help_text, parse_mode="HTML")
+
 
 async def main():
     global CARD_DECK
