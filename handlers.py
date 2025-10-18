@@ -33,10 +33,9 @@ BEER_LOSE_PHRASES_ZERO = [
 
 COOLDOWN_SECONDS = 7200  # 2 часа в секундах
 
-# --- Вспомогательная функция для проверки регистрации (ИСПРАВЛЕНА) ---
+# --- Вспомогательная функция для проверки регистрации ---
 
 async def check_user_registered(message: Message, bot: Bot) -> bool:
-    """Проверяет, зарегистрирован ли пользователь. Если нет, отправляет сообщение с кнопкой."""
     if await db.user_exists(message.from_user.id):
         return True
     
@@ -59,8 +58,7 @@ async def check_user_registered(message: Message, bot: Bot) -> bool:
 # --- Обработчики команд ---
 
 @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_NOT_MEMBER >> IS_MEMBER))
-async def on_group_join(event: ChatMemberUpdated, bot: Bot):
-    """Отправляет приветствие, когда бота добавляют в группу."""
+async def on_bot_join_group(event: ChatMemberUpdated, bot: Bot):
     me = await bot.get_me()
     await bot.send_message(
         event.chat.id,
@@ -94,10 +92,9 @@ async def cmd_start(message: Message):
         )
 
 @router.message(Command("beer"))
-async def cmd_beer(message: Message, bot: Bot): # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
-    # Если команда вызвана в группе, сначала проверяем регистрацию
+async def cmd_beer(message: Message, bot: Bot):
     if message.chat.type != 'private':
-        if not await check_user_registered(message, bot): # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
+        if not await check_user_registered(message, bot):
             return
 
     user_id = message.from_user.id
@@ -113,9 +110,22 @@ async def cmd_beer(message: Message, bot: Bot): # <--- ИЗМЕНЕНИЕ ЗДЕ
             )
             return
 
+    # --- НОВАЯ ЛОГИКА ВЗВЕШЕННОГО РАНДОМА ---
     current_rating = await db.get_user_beer_rating(user_id)
-    rating_change = random.randint(-5, 10)
     
+    outcomes = ['small_win', 'loss', 'big_win']
+    weights = [0.60, 0.25, 0.15]  # 60% small win, 25% loss, 15% big win
+    
+    chosen_outcome = random.choices(outcomes, weights=weights, k=1)[0]
+    
+    if chosen_outcome == 'small_win':
+        rating_change = random.randint(1, 4)
+    elif chosen_outcome == 'big_win':
+        rating_change = random.randint(5, 10)
+    else: # 'loss'
+        rating_change = random.randint(-5, -1)
+    # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
     if rating_change > 0:
         new_rating = current_rating + rating_change
         phrase = random.choice(BEER_WIN_PHRASES).format(rating_change=rating_change)
@@ -137,10 +147,9 @@ async def cmd_beer(message: Message, bot: Bot): # <--- ИЗМЕНЕНИЕ ЗДЕ
 
 
 @router.message(Command("top"))
-async def cmd_top(message: Message, bot: Bot): # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
-    # Если команда вызвана в группе, сначала проверяем регистрацию
+async def cmd_top(message: Message, bot: Bot):
     if message.chat.type != 'private':
-        if not await check_user_registered(message, bot): # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
+        if not await check_user_registered(message, bot):
             return
 
     top_users = await db.get_top_users()
