@@ -11,7 +11,7 @@ from utils import format_time_delta
 
 # Инициализируем роутер и базу данных
 router = Router()
-db = Database()
+db = Database(db_name='/data/bot_database.db')
 
 # --- Фразы для команды /beer ---
 BEER_WIN_PHRASES = [
