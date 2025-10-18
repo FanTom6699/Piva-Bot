@@ -33,19 +33,13 @@ BEER_LOSE_PHRASES_ZERO = [
 
 COOLDOWN_SECONDS = 7200  # 2 часа в секундах
 
-# --- Вспомогательная функция для проверки регистрации ---
+# --- Вспомогательная функция для проверки регистрации (ИСПРАВЛЕНА) ---
 
-async def check_user_registered(message: Message) -> bool:
+async def check_user_registered(message: Message, bot: Bot) -> bool:
     """Проверяет, зарегистрирован ли пользователь. Если нет, отправляет сообщение с кнопкой."""
     if await db.user_exists(message.from_user.id):
         return True
     
-    bot = Bot.get_current()
-    if not bot:
-        # Резервный вариант, если контекст бота не найден
-        await message.reply("Не могу создать ссылку. Пожалуйста, найдите меня и напишите /start в личные сообщения.")
-        return False
-        
     me = await bot.get_me()
     start_link = f"https://t.me/{me.username}?start=register"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -100,16 +94,15 @@ async def cmd_start(message: Message):
         )
 
 @router.message(Command("beer"))
-async def cmd_beer(message: Message):
+async def cmd_beer(message: Message, bot: Bot): # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
     # Если команда вызвана в группе, сначала проверяем регистрацию
     if message.chat.type != 'private':
-        if not await check_user_registered(message):
+        if not await check_user_registered(message, bot): # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
             return
 
     user_id = message.from_user.id
     last_beer_time = await db.get_last_beer_time(user_id)
     
-    # Проверка кулдауна
     if last_beer_time:
         time_since_last_beer = datetime.now() - last_beer_time
         if time_since_last_beer.total_seconds() < COOLDOWN_SECONDS:
@@ -120,7 +113,6 @@ async def cmd_beer(message: Message):
             )
             return
 
-    # Логика игры
     current_rating = await db.get_user_beer_rating(user_id)
     rating_change = random.randint(-5, 10)
     
@@ -145,10 +137,10 @@ async def cmd_beer(message: Message):
 
 
 @router.message(Command("top"))
-async def cmd_top(message: Message):
+async def cmd_top(message: Message, bot: Bot): # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
     # Если команда вызвана в группе, сначала проверяем регистрацию
     if message.chat.type != 'private':
-        if not await check_user_registered(message):
+        if not await check_user_registered(message, bot): # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
             return
 
     top_users = await db.get_top_users()
