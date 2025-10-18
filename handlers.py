@@ -2,9 +2,9 @@
 import random
 from datetime import datetime, timedelta
 
-from aiogram import Router, F
-from aiogram.types import Message
-from aiogram.filters import CommandStart, Command
+from aiogram import Router, F, Bot
+from aiogram.types import Message, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import CommandStart, Command, ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER
 
 from database import Database
 from utils import format_time_delta
@@ -33,7 +33,54 @@ BEER_LOSE_PHRASES_ZERO = [
 
 COOLDOWN_SECONDS = 7200  # 2 часа в секундах
 
+# --- Вспомогательная функция для проверки регистрации ---
+
+async def check_user_registered(message: Message) -> bool:
+    """Проверяет, зарегистрирован ли пользователь. Если нет, отправляет сообщение с кнопкой."""
+    if await db.user_exists(message.from_user.id):
+        return True
+    
+    bot = Bot.get_current()
+    if not bot:
+        # Резервный вариант, если контекст бота не найден
+        await message.reply("Не могу создать ссылку. Пожалуйста, найдите меня и напишите /start в личные сообщения.")
+        return False
+        
+    me = await bot.get_me()
+    start_link = f"https://t.me/{me.username}?start=register"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✍️ Зарегистрироваться", url=start_link)]
+    ])
+    
+    await message.reply(
+        "<b>Эй, новичок!</b> 🍻\n\n"
+        "Прежде чем пить пиво, нужно зайти в бар! "
+        "Я тебя еще не знаю. Нажми на кнопку ниже, чтобы начать диалог со мной и зарегистрироваться.",
+        reply_markup=keyboard,
+        parse_mode='HTML'
+    )
+    return False
+
+
 # --- Обработчики команд ---
+
+@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_NOT_MEMBER >> IS_MEMBER))
+async def on_group_join(event: ChatMemberUpdated, bot: Bot):
+    """Отправляет приветствие, когда бота добавляют в группу."""
+    me = await bot.get_me()
+    await bot.send_message(
+        event.chat.id,
+        text=(
+            "<b>Всем привет в этом чате!</b> 🍻\n\n"
+            "Я Piva Bot, и я здесь, чтобы вести учет вашего пивного рейтинга!\n\n"
+            "<b>Как начать:</b>\n"
+            "1️⃣ Каждый участник должен написать мне в личные сообщения -> @" + me.username + " и нажать /start.\n"
+            "2️⃣ Возвращайтесь сюда и используйте команду /beer, чтобы испытать удачу.\n"
+            "3️⃣ Проверяйте лучших игроков командой /top.\n\n"
+            "Да начнутся пивные игры!"
+        ),
+        parse_mode='HTML'
+    )
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -43,7 +90,7 @@ async def cmd_start(message: Message):
         await message.answer(
             f"Привет, {user.full_name}! 👋\n"
             f"Добро пожаловать в наш пивной клуб. Твой начальный рейтинг: 0 🍺.\n"
-            f"Увеличивай его командой /beer!"
+            f"Увеличивай его командой /beer в любом чате, где я есть!"
         )
     else:
         rating = await db.get_user_beer_rating(user.id)
@@ -54,6 +101,11 @@ async def cmd_start(message: Message):
 
 @router.message(Command("beer"))
 async def cmd_beer(message: Message):
+    # Если команда вызвана в группе, сначала проверяем регистрацию
+    if message.chat.type != 'private':
+        if not await check_user_registered(message):
+            return
+
     user_id = message.from_user.id
     last_beer_time = await db.get_last_beer_time(user_id)
     
@@ -82,7 +134,7 @@ async def cmd_beer(message: Message):
             new_rating = 0
             if actual_loss > 0:
                 phrase = random.choice(BEER_LOSE_PHRASES_ZERO).format(rating_loss=actual_loss)
-            else: # Если рейтинг уже был 0
+            else: 
                 phrase = "Ты попытался выпить, но у тебя и так 0 🍺. Попробуй еще раз позже!"
         else:
             new_rating = current_rating - rating_loss
@@ -94,6 +146,11 @@ async def cmd_beer(message: Message):
 
 @router.message(Command("top"))
 async def cmd_top(message: Message):
+    # Если команда вызвана в группе, сначала проверяем регистрацию
+    if message.chat.type != 'private':
+        if not await check_user_registered(message):
+            return
+
     top_users = await db.get_top_users()
     if not top_users:
         await message.answer("В баре пока никого нет, чтобы составить топ. Будь первым!")
