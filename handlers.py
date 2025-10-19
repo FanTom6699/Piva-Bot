@@ -421,8 +421,8 @@ async def cmd_ladder(message: Message, bot: Bot):
     if len(args) != 2 or not args[1].isdigit():
         return await message.reply("Неверный формат. Используйте: `/ladder <ставка>` (например, `/ladder 10`).")
     stake = int(args[1])
-    if not (5 <= stake <= 100):
-        return await message.reply("Ставка должна быть от 5 до 100 🍺.")
+    if not (5 <= stake <= 1000):
+        return await message.reply("Ставка должна быть от 5 до 1000 🍺.")
     if not await check_user_registered(message, bot):
         return
     balance = await db.get_user_beer_rating(user.id)
