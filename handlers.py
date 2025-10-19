@@ -3,6 +3,7 @@ import asyncio
 import random
 from datetime import datetime, timedelta
 from contextlib import suppress
+import logging
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
@@ -119,7 +120,6 @@ async def handle_bot_membership(event: ChatMemberUpdated, bot: Bot):
 
 # --- АДМИН-ПАНЕЛЬ (admin_router) ---
 
-# Команда для отмены любого состояния
 @admin_router.message(Command("cancel"), IsAdmin(), StateFilter("*"))
 async def cancel_handler(message: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -128,7 +128,6 @@ async def cancel_handler(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Действие отменено.")
 
-# Главное меню админки
 @admin_router.message(Command("admin"), IsAdmin())
 async def cmd_admin_panel(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -138,7 +137,6 @@ async def cmd_admin_panel(message: Message):
     ])
     await message.answer("Добро пожаловать в админ-панель!", reply_markup=keyboard)
 
-# Обработчик кнопок админ-панели
 @admin_router.callback_query(AdminCallbackData.filter(), IsAdmin())
 async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCallbackData, state: FSMContext):
     action = callback_data.action
@@ -158,11 +156,10 @@ async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCal
         await callback.message.answer("Пожалуйста, отправьте сообщение для рассылки. Для отмены введите /cancel")
     elif action == "give_beer":
         await state.set_state(AdminStates.give_beer_user)
-        await callback.message.answer("Кому выдать пиво? Отправьте ID пользователя или перешлите его сообщение. Для отмены введите /cancel")
+        await callback.message.answer("Кому выдать пиво? Отправьте ID, @username или перешлите сообщение. Для отмены введите /cancel")
 
     await callback.answer()
 
-# Хэндлер для получения сообщения для рассылки
 @admin_router.message(AdminStates.broadcast_message, IsAdmin())
 async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot):
     await state.clear()
@@ -197,17 +194,19 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
         parse_mode='HTML'
     )
 
-# Хэндлеры для выдачи пива
 @admin_router.message(AdminStates.give_beer_user, IsAdmin())
 async def process_give_beer_user(message: Message, state: FSMContext):
     target_id = None
+    
     if message.forward_from:
         target_id = message.forward_from.id
+    elif message.text.startswith('@'):
+        target_id = await db.get_user_by_username(message.text)
     elif message.text.isdigit():
         target_id = int(message.text)
     
     if not target_id or not await db.user_exists(target_id):
-        await message.reply("Пользователь не найден. Попробуйте еще раз или введите /cancel для отмены.")
+        await message.reply("Пользователь не найден в базе данных. Попробуйте другой способ или введите /cancel для отмены.")
         return
 
     await state.update_data(target_id=target_id)
@@ -238,7 +237,6 @@ async def process_give_beer_amount(message: Message, state: FSMContext, bot: Bot
     )
     with suppress(TelegramBadRequest):
         await bot.send_message(target_id, f"⚙️ Администратор изменил ваш баланс на {amount:+} 🍺.")
-
 
 @admin_router.message(F.text.lower() == "бот выйди", IsAdmin())
 async def admin_leave_chat(message: Message, bot: Bot):
@@ -436,16 +434,36 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
         await callback.answer()
 
 async def schedule_game_start(chat_id: int, bot: Bot):
-    await asyncio.sleep(ROULETTE_LOBBY_TIMEOUT_SECONDS)
-    if chat_id in active_games:
+    try:
+        await asyncio.sleep(ROULETTE_LOBBY_TIMEOUT_SECONDS)
+
+        if chat_id not in active_games:
+            return
+
         game = active_games[chat_id]
+        
         if len(game.players) >= 2:
             await start_roulette_game(chat_id, bot)
         else:
             await db.change_rating(game.creator.id, game.stake)
+            
+            await bot.edit_message_text(
+                "Недостаточно игроков для начала. Игра отменена.", 
+                chat_id, 
+                game.lobby_message_id,
+                reply_markup=None
+            )
+            with suppress(TelegramBadRequest):
+                await bot.unpin_chat_message(chat_id, game.lobby_message_id)
+            
             del active_games[chat_id]
-            with suppress(TelegramBadRequest): await bot.unpin_chat_message(chat_id, game.lobby_message_id)
-            await bot.edit_message_text("Недостаточно игроков для начала. Игра отменена.", chat_id, game.lobby_message_id)
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logging.error(f"Ошибка в задаче schedule_game_start для чата {chat_id}: {e}")
+        if chat_id in active_games:
+            del active_games[chat_id]
 
 async def start_roulette_game(chat_id: int, bot: Bot):
     if chat_id not in active_games: return
