@@ -8,7 +8,6 @@ class Database:
 
     async def initialize(self):
         async with aiosqlite.connect(self.db_name) as db:
-            # Таблица пользователей
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -19,7 +18,6 @@ class Database:
                     last_beer_time TEXT
                 )
             ''')
-            # НОВАЯ ТАБЛИЦА ДЛЯ ЧАТОВ
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS chats (
                     chat_id INTEGER PRIMARY KEY,
@@ -67,6 +65,15 @@ class Database:
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM users")
             return (await cursor.fetchone())[0]
+
+    # --- НОВАЯ ФУНКЦИЯ ---
+    async def get_user_by_username(self, username: str):
+        # Убираем @, если он есть
+        username = username.lstrip('@')
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute('SELECT user_id FROM users WHERE username = ?', (username,))
+            result = await cursor.fetchone()
+            return result[0] if result else None
 
     async def get_user_beer_rating(self, user_id):
         async with aiosqlite.connect(self.db_name) as db:
