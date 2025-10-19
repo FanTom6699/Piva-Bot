@@ -119,7 +119,6 @@ async def handle_bot_membership(event: ChatMemberUpdated, bot: Bot):
 
 
 # --- АДМИН-ПАНЕЛЬ (admin_router) ---
-
 @admin_router.message(Command("cancel"), IsAdmin(), StateFilter("*"))
 async def cancel_handler(message: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -140,8 +139,7 @@ async def cmd_admin_panel(message: Message):
 @admin_router.callback_query(AdminCallbackData.filter(), IsAdmin())
 async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCallbackData, state: FSMContext):
     action = callback_data.action
-    await callback.message.edit_reply_markup()
-
+    await callback.message.edit_reply_markup() 
     if action == "stats":
         total_users = await db.get_total_users_count()
         all_chats = await db.get_all_chat_ids()
@@ -157,7 +155,6 @@ async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCal
     elif action == "give_beer":
         await state.set_state(AdminStates.give_beer_user)
         await callback.message.answer("Кому выдать пиво? Отправьте ID, @username или перешлите сообщение. Для отмены введите /cancel")
-
     await callback.answer()
 
 @admin_router.message(AdminStates.broadcast_message, IsAdmin())
@@ -166,7 +163,6 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
     await message.answer("Начинаю рассылку...")
     user_ids = await db.get_all_user_ids()
     chat_ids = await db.get_all_chat_ids()
-    
     success_users, failed_users = 0, 0
     for user_id in user_ids:
         with suppress(TelegramBadRequest):
@@ -176,7 +172,6 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
             except Exception:
                 failed_users += 1
             await asyncio.sleep(0.1)
-
     success_chats, failed_chats = 0, 0
     for chat_id in chat_ids:
         with suppress(TelegramBadRequest):
@@ -186,7 +181,6 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
             except Exception:
                 failed_chats += 1
             await asyncio.sleep(0.1)
-
     await message.answer(
         f"<b>📢 Рассылка завершена!</b>\n\n"
         f"<b>Пользователи:</b>\n✅ Успешно: {success_users}\n❌ Неудачно: {failed_users}\n\n"
@@ -197,18 +191,15 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
 @admin_router.message(AdminStates.give_beer_user, IsAdmin())
 async def process_give_beer_user(message: Message, state: FSMContext):
     target_id = None
-    
     if message.forward_from:
         target_id = message.forward_from.id
     elif message.text.startswith('@'):
         target_id = await db.get_user_by_username(message.text)
     elif message.text.isdigit():
         target_id = int(message.text)
-    
     if not target_id or not await db.user_exists(target_id):
         await message.reply("Пользователь не найден в базе данных. Попробуйте другой способ или введите /cancel для отмены.")
         return
-
     await state.update_data(target_id=target_id)
     await state.set_state(AdminStates.give_beer_amount)
     await message.answer("Отлично. Теперь введите сумму для начисления (например, `100` или `-50`).")
@@ -218,16 +209,12 @@ async def process_give_beer_amount(message: Message, state: FSMContext, bot: Bot
     if not message.text.lstrip('-').isdigit():
         await message.reply("Это не число. Введите сумму (например, `100` или `-50`). Для отмены введите /cancel.")
         return
-    
     amount = int(message.text)
     user_data = await state.get_data()
     target_id = user_data.get('target_id')
-    
     await state.clear()
-    
     await db.change_rating(target_id, amount)
     new_balance = await db.get_user_beer_rating(target_id)
-    
     await message.answer(
         f"Баланс пользователя успешно изменен!\n"
         f"ID: <code>{target_id}</code>\n"
@@ -258,37 +245,39 @@ async def cmd_start(message: Message):
         rating = await db.get_user_beer_rating(user.id)
         await message.answer(f"С возвращением, {user.full_name}! 🍻\nТвой текущий рейтинг: {rating} 🍺.")
 
+# --- НОВАЯ КОМАНДА ---
+@router.message(Command("id"))
+async def cmd_id(message: Message):
+    await message.reply(
+        f"ℹ️ **Информация:**\n\n"
+        f"👤 Ваш User ID: <code>{message.from_user.id}</code>\n"
+        f"💬 ID этого чата: <code>{message.chat.id}</code>",
+        parse_mode='HTML'
+    )
+
 @router.message(Command("beer"))
 async def cmd_beer(message: Message, bot: Bot):
     user_id = message.from_user.id
-    
     now = datetime.now()
     if user_id in user_spam_tracker:
         if (now - user_spam_tracker[user_id]).total_seconds() < 5:
             return
     user_spam_tracker[user_id] = now
-
     if message.chat.type != 'private' and not await check_user_registered(message, bot):
         return
-
     last_beer_time = await db.get_last_beer_time(user_id)
-    
     if last_beer_time:
         time_since = datetime.now() - last_beer_time
         if time_since.total_seconds() < BEER_COOLDOWN_SECONDS:
             remaining = timedelta(seconds=BEER_COOLDOWN_SECONDS) - time_since
             return await message.answer(f"⌛ Ты уже недавно пил! 🍻\nВернись в бар через: {format_time_delta(remaining)}.")
-
     current_rating = await db.get_user_beer_rating(user_id)
-    
     outcomes = ['small_win', 'loss', 'big_win']
     weights = [0.60, 0.25, 0.15]
     chosen_outcome = random.choices(outcomes, weights=weights, k=1)[0]
-    
     if chosen_outcome == 'small_win': rating_change = random.randint(1, 4)
     elif chosen_outcome == 'big_win': rating_change = random.randint(5, 10)
     else: rating_change = random.randint(-5, -1)
-
     if rating_change > 0:
         new_rating = current_rating + rating_change
         phrase = random.choice(BEER_WIN_PHRASES).format(rating_change=rating_change)
@@ -301,7 +290,6 @@ async def cmd_beer(message: Message, bot: Bot):
         else:
             new_rating = current_rating - rating_loss
             phrase = random.choice(BEER_LOSE_PHRASES_RATING).format(rating_loss=rating_loss)
-
     await db.update_beer_data(user_id, new_rating)
     await message.answer(phrase, parse_mode='HTML')
 
@@ -309,19 +297,15 @@ async def cmd_beer(message: Message, bot: Bot):
 async def cmd_top(message: Message, bot: Bot):
     if message.chat.type != 'private' and not await check_user_registered(message, bot):
         return
-
     top_users = await db.get_top_users()
     if not top_users: return await message.answer("В баре пока никого нет, чтобы составить топ.")
-
     top_text = "🏆 <b>Топ-10 пивных мастеров:</b> 🏆\n\n"
     medals = ["🥇", "🥈", "🥉"]
-    
     for i, (first_name, last_name, rating) in enumerate(top_users):
         full_name = first_name + (f" {last_name}" if last_name else "")
         place = i + 1
         medal = medals[i] if i < 3 else "🏅"
         top_text += f"{medal} {place}. {full_name} — {rating} 🍺\n"
-            
     await message.answer(top_text, parse_mode='HTML')
 
 
@@ -348,7 +332,6 @@ async def generate_lobby_text(game: GameState) -> str:
 @router.message(Command("roulette"))
 async def cmd_roulette(message: Message, bot: Bot):
     if message.chat.type == 'private': return await message.answer("Эта команда работает только в групповых чатах.")
-
     args = message.text.split()
     if len(args) != 3 or not args[1].isdigit() or not args[2].isdigit():
         return await message.reply(
@@ -358,7 +341,6 @@ async def cmd_roulette(message: Message, bot: Bot):
             "• <code>&lt;игроки&gt;</code>: от 2 до 6 человек\n\n"
             "Пример: <code>/roulette 10 4</code>", parse_mode='HTML'
         )
-    
     chat_id = message.chat.id
     if chat_id in active_games: return await message.reply("В этом чате уже идет игра.")
     if chat_id in chat_cooldowns:
@@ -366,22 +348,17 @@ async def cmd_roulette(message: Message, bot: Bot):
         if time_since.total_seconds() < ROULETTE_COOLDOWN_SECONDS:
             remaining = timedelta(seconds=ROULETTE_COOLDOWN_SECONDS) - time_since
             return await message.reply(f"Создавать новую игру можно будет через: {format_time_delta(remaining)}.")
-
     stake, max_players = int(args[1]), int(args[2])
     if not (5 <= stake <= 100): return await message.reply("Ставка должна быть от 5 до 100 🍺.")
     if not (2 <= max_players <= 6): return await message.reply("Количество игроков должно быть от 2 до 6.")
-    
     creator = message.from_user
     if not await check_user_registered(message, bot): return
-
     creator_balance = await db.get_user_beer_rating(creator.id)
     if creator_balance < stake: return await message.reply(f"У вас недостаточно пива. Нужно {stake} 🍺, у вас {creator_balance} 🍺.")
-
     await db.change_rating(creator.id, -stake)
     lobby_message = await message.answer("Создание лобби...")
     game = GameState(creator, stake, max_players, lobby_message.message_id)
     active_games[chat_id] = game
-    
     with suppress(TelegramBadRequest): await bot.pin_chat_message(chat_id, lobby_message.message_id, disable_notification=True)
     await lobby_message.edit_text(await generate_lobby_text(game), reply_markup=get_roulette_keyboard(game, creator.id), parse_mode='HTML')
     game.task = asyncio.create_task(schedule_game_start(chat_id, bot))
@@ -391,73 +368,51 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
     chat_id = callback.message.chat.id
     user = callback.from_user
     if chat_id not in active_games: return await callback.answer("Эта игра уже неактивна.", show_alert=True)
-    
     game = active_games[chat_id]
     action = callback_data.action
-
     if action == "join":
         if user.id in game.players: return await callback.answer("Вы уже в игре!", show_alert=True)
         if len(game.players) >= game.max_players: return await callback.answer("Лобби заполнено.", show_alert=True)
         if not await check_user_registered(callback, bot): return
-             
         balance = await db.get_user_beer_rating(user.id)
         if balance < game.stake: return await callback.answer(f"Недостаточно пива! Нужно {game.stake} 🍺, у вас {balance} 🍺.", show_alert=True)
-        
         await db.change_rating(user.id, -game.stake)
         game.players[user.id] = user
         await callback.answer("Вы присоединились к игре!")
-        
         if len(game.players) == game.max_players:
             if game.task: game.task.cancel()
             await start_roulette_game(chat_id, bot)
         else:
             await callback.message.edit_text(await generate_lobby_text(game), reply_markup=get_roulette_keyboard(game, user.id), parse_mode='HTML')
-    
     elif action == "leave":
         if user.id not in game.players: return await callback.answer("Вы не в этой игре.", show_alert=True)
         if user.id == game.creator.id: return await callback.answer("Создатель не может покинуть игру. Только отменить.", show_alert=True)
-        
         del game.players[user.id]
         await db.change_rating(user.id, game.stake)
         await callback.answer("Вы покинули игру, ваша ставка возвращена.", show_alert=True)
         await callback.message.edit_text(await generate_lobby_text(game), reply_markup=get_roulette_keyboard(game, user.id), parse_mode='HTML')
-
     elif action == "cancel":
         if user.id != game.creator.id: return await callback.answer("Только создатель может отменить игру.", show_alert=True)
         if game.task: game.task.cancel()
-        
         for player_id in game.players: await db.change_rating(player_id, game.stake)
         del active_games[chat_id]
         with suppress(TelegramBadRequest): await bot.unpin_chat_message(chat_id, game.lobby_message_id)
-        
         await callback.message.edit_text("Игра отменена создателем. Все ставки возвращены.")
         await callback.answer()
 
 async def schedule_game_start(chat_id: int, bot: Bot):
     try:
         await asyncio.sleep(ROULETTE_LOBBY_TIMEOUT_SECONDS)
-
-        if chat_id not in active_games:
-            return
-
+        if chat_id not in active_games: return
         game = active_games[chat_id]
-        
         if len(game.players) >= 2:
             await start_roulette_game(chat_id, bot)
         else:
             await db.change_rating(game.creator.id, game.stake)
-            
-            await bot.edit_message_text(
-                "Недостаточно игроков для начала. Игра отменена.", 
-                chat_id, 
-                game.lobby_message_id,
-                reply_markup=None
-            )
+            await bot.edit_message_text("Недостаточно игроков для начала. Игра отменена.", chat_id, game.lobby_message_id, reply_markup=None)
             with suppress(TelegramBadRequest):
                 await bot.unpin_chat_message(chat_id, game.lobby_message_id)
-            
             del active_games[chat_id]
-
     except asyncio.CancelledError:
         pass
     except Exception as e:
@@ -468,18 +423,15 @@ async def schedule_game_start(chat_id: int, bot: Bot):
 async def start_roulette_game(chat_id: int, bot: Bot):
     if chat_id not in active_games: return
     game = active_games[chat_id]
-    
     with suppress(TelegramBadRequest): await bot.unpin_chat_message(chat_id, game.lobby_message_id)
     await bot.edit_message_text(f"Все в сборе! Ставки ({game.stake} 🍺 с каждого). Крутим барабан... 🔫", chat_id, game.lobby_message_id, reply_markup=None)
     await asyncio.sleep(3)
-
     players_in_game = list(game.players.values())
     round_num = 1
     while len(players_in_game) > 1:
         loser = random.choice(players_in_game)
         players_in_game.remove(loser)
         remaining_players_text = "\n".join(f"• {p.full_name}" for p in players_in_game)
-        
         await bot.edit_message_text(
             f"🍻 <b>Раунд {round_num}</b> 🍻\n\n"
             f"Выбывает... <b>{loser.full_name}</b>! 😖\n\n"
@@ -489,22 +441,18 @@ async def start_roulette_game(chat_id: int, bot: Bot):
         )
         round_num += 1
         await asyncio.sleep(5)
-        
     winner = players_in_game[0]
     prize = game.stake * len(game.players)
     await db.change_rating(winner.id, prize)
-    
     winner_text = (
         f"🏆 <b>ПОБЕДИТЕЛЬ!</b> 🏆\n\n"
         f"Поздравляем, <b>{winner.full_name}</b>! Он забирает весь банк: <b>{prize} 🍺</b>!\n\n"
         f"<i>Игра окончена.</i>"
     )
     await bot.edit_message_text(winner_text, chat_id, game.lobby_message_id, parse_mode='HTML')
-    
     with suppress(TelegramBadRequest):
         await bot.pin_chat_message(chat_id, game.lobby_message_id, disable_notification=True)
         asyncio.create_task(unpin_after_delay(chat_id, game.lobby_message_id, bot, 120))
-        
     del active_games[chat_id]
     chat_cooldowns[chat_id] = datetime.now()
 
