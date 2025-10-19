@@ -119,6 +119,7 @@ async def handle_bot_membership(event: ChatMemberUpdated, bot: Bot):
 
 
 # --- АДМИН-ПАНЕЛЬ (admin_router) ---
+
 @admin_router.message(Command("cancel"), IsAdmin(), StateFilter("*"))
 async def cancel_handler(message: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -223,13 +224,13 @@ async def process_give_beer_amount(message: Message, state: FSMContext, bot: Bot
         parse_mode='HTML'
     )
     with suppress(TelegramBadRequest):
-        await bot.send_message(target_id, f"⚙️ Администратор изменил ваш баланс на {amount:+} 🍺.")
+        await bot.send_message(chat_id=target_id, text=f"⚙️ Администратор изменил ваш баланс на {amount:+} 🍺.")
 
 @admin_router.message(F.text.lower() == "бот выйди", IsAdmin())
 async def admin_leave_chat(message: Message, bot: Bot):
     if message.chat.type in ['group', 'supergroup']:
         await message.reply("Хорошо, слушаюсь...")
-        await bot.leave_chat(message.chat.id)
+        await bot.leave_chat(chat_id=message.chat.id)
     else:
         await message.reply("Эту команду можно использовать только в группах.")
 
@@ -245,7 +246,6 @@ async def cmd_start(message: Message):
         rating = await db.get_user_beer_rating(user.id)
         await message.answer(f"С возвращением, {user.full_name}! 🍻\nТвой текущий рейтинг: {rating} 🍺.")
 
-# --- НОВАЯ КОМАНДА ---
 @router.message(Command("id"))
 async def cmd_id(message: Message):
     await message.reply(
@@ -359,7 +359,7 @@ async def cmd_roulette(message: Message, bot: Bot):
     lobby_message = await message.answer("Создание лобби...")
     game = GameState(creator, stake, max_players, lobby_message.message_id)
     active_games[chat_id] = game
-    with suppress(TelegramBadRequest): await bot.pin_chat_message(chat_id, lobby_message.message_id, disable_notification=True)
+    with suppress(TelegramBadRequest): await bot.pin_chat_message(chat_id=chat_id, message_id=lobby_message.message_id, disable_notification=True)
     await lobby_message.edit_text(await generate_lobby_text(game), reply_markup=get_roulette_keyboard(game, creator.id), parse_mode='HTML')
     game.task = asyncio.create_task(schedule_game_start(chat_id, bot))
 
@@ -396,7 +396,7 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
         if game.task: game.task.cancel()
         for player_id in game.players: await db.change_rating(player_id, game.stake)
         del active_games[chat_id]
-        with suppress(TelegramBadRequest): await bot.unpin_chat_message(chat_id, game.lobby_message_id)
+        with suppress(TelegramBadRequest): await bot.unpin_chat_message(chat_id=chat_id, message_id=game.lobby_message_id)
         await callback.message.edit_text("Игра отменена создателем. Все ставки возвращены.")
         await callback.answer()
 
@@ -409,9 +409,9 @@ async def schedule_game_start(chat_id: int, bot: Bot):
             await start_roulette_game(chat_id, bot)
         else:
             await db.change_rating(game.creator.id, game.stake)
-            await bot.edit_message_text("Недостаточно игроков для начала. Игра отменена.", chat_id, game.lobby_message_id, reply_markup=None)
+            await bot.edit_message_text(text="Недостаточно игроков для начала. Игра отменена.", chat_id=chat_id, message_id=game.lobby_message_id, reply_markup=None)
             with suppress(TelegramBadRequest):
-                await bot.unpin_chat_message(chat_id, game.lobby_message_id)
+                await bot.unpin_chat_message(chat_id=chat_id, message_id=game.lobby_message_id)
             del active_games[chat_id]
     except asyncio.CancelledError:
         pass
@@ -423,8 +423,8 @@ async def schedule_game_start(chat_id: int, bot: Bot):
 async def start_roulette_game(chat_id: int, bot: Bot):
     if chat_id not in active_games: return
     game = active_games[chat_id]
-    with suppress(TelegramBadRequest): await bot.unpin_chat_message(chat_id, game.lobby_message_id)
-    await bot.edit_message_text(f"Все в сборе! Ставки ({game.stake} 🍺 с каждого). Крутим барабан... 🔫", chat_id, game.lobby_message_id, reply_markup=None)
+    with suppress(TelegramBadRequest): await bot.unpin_chat_message(chat_id=chat_id, message_id=game.lobby_message_id)
+    await bot.edit_message_text(text=f"Все в сборе! Ставки ({game.stake} 🍺 с каждого). Крутим барабан... 🔫", chat_id=chat_id, message_id=game.lobby_message_id, reply_markup=None)
     await asyncio.sleep(3)
     players_in_game = list(game.players.values())
     round_num = 1
@@ -433,11 +433,11 @@ async def start_roulette_game(chat_id: int, bot: Bot):
         players_in_game.remove(loser)
         remaining_players_text = "\n".join(f"• {p.full_name}" for p in players_in_game)
         await bot.edit_message_text(
-            f"🍻 <b>Раунд {round_num}</b> 🍻\n\n"
-            f"Выбывает... <b>{loser.full_name}</b>! 😖\n\n"
-            f"<i>Остались в игре:</i>\n{remaining_players_text}\n\n"
-            f"Следующий раунд через 5 секунд...",
-            chat_id, game.lobby_message_id, parse_mode='HTML'
+            text=f"🍻 <b>Раунд {round_num}</b> 🍻\n\n"
+                 f"Выбывает... <b>{loser.full_name}</b>! 😖\n\n"
+                 f"<i>Остались в игре:</i>\n{remaining_players_text}\n\n"
+                 f"Следующий раунд через 5 секунд...",
+            chat_id=chat_id, message_id=game.lobby_message_id, parse_mode='HTML'
         )
         round_num += 1
         await asyncio.sleep(5)
@@ -449,9 +449,9 @@ async def start_roulette_game(chat_id: int, bot: Bot):
         f"Поздравляем, <b>{winner.full_name}</b>! Он забирает весь банк: <b>{prize} 🍺</b>!\n\n"
         f"<i>Игра окончена.</i>"
     )
-    await bot.edit_message_text(winner_text, chat_id, game.lobby_message_id, parse_mode='HTML')
+    await bot.edit_message_text(text=winner_text, chat_id=chat_id, message_id=game.lobby_message_id, parse_mode='HTML')
     with suppress(TelegramBadRequest):
-        await bot.pin_chat_message(chat_id, game.lobby_message_id, disable_notification=True)
+        await bot.pin_chat_message(chat_id=chat_id, message_id=game.lobby_message_id, disable_notification=True)
         asyncio.create_task(unpin_after_delay(chat_id, game.lobby_message_id, bot, 120))
     del active_games[chat_id]
     chat_cooldowns[chat_id] = datetime.now()
@@ -459,4 +459,4 @@ async def start_roulette_game(chat_id: int, bot: Bot):
 async def unpin_after_delay(chat_id: int, message_id: int, bot: Bot, delay: int):
     await asyncio.sleep(delay)
     with suppress(TelegramBadRequest):
-        await bot.unpin_chat_message(chat_id, message_id)
+        await bot.unpin_chat_message(chat_id=chat_id, message_id=message_id)
