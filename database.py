@@ -61,3 +61,13 @@ class Database:
                 (limit,)
             )
             return await cursor.fetchall()
+
+    # --- НОВАЯ ФУНКЦИЯ ДЛЯ ИЗМЕНЕНИЯ РЕЙТИНГА ---
+    async def change_rating(self, user_id, amount: int):
+        """Изменяет рейтинг пользователя на указанную величину (может быть отрицательной)"""
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute(
+                'UPDATE users SET beer_rating = beer_rating + ? WHERE user_id = ?',
+                (amount, user_id)
+            )
+            await db.commit()
