@@ -420,39 +420,55 @@ async def schedule_game_start(chat_id: int, bot: Bot):
         if chat_id in active_games:
             del active_games[chat_id]
 
+# --- ИЗМЕНЕНИЯ ЗДЕСЬ ---
 async def start_roulette_game(chat_id: int, bot: Bot):
     if chat_id not in active_games: return
     game = active_games[chat_id]
+    
+    # Открепляем и редактируем лобби
     with suppress(TelegramBadRequest): await bot.unpin_chat_message(chat_id=chat_id, message_id=game.lobby_message_id)
-    await bot.edit_message_text(text=f"Все в сборе! Ставки ({game.stake} 🍺 с каждого). Крутим барабан... 🔫", chat_id=chat_id, message_id=game.lobby_message_id, reply_markup=None)
+    await bot.edit_message_text(text=f"Все в сборе! Ставки ({game.stake} 🍺 с каждого) сделаны. Начинаем рулетку...", chat_id=chat_id, message_id=game.lobby_message_id, reply_markup=None)
+    
     await asyncio.sleep(3)
+
     players_in_game = list(game.players.values())
     round_num = 1
+    
     while len(players_in_game) > 1:
+        # Отправляем новое сообщение о начале раунда
+        await bot.send_message(chat_id, f"🍻 <b>Раунд {round_num}</b>. Крутим барабан... 🔫", parse_mode='HTML')
+        await asyncio.sleep(5) # Драматическая пауза
+
         loser = random.choice(players_in_game)
         players_in_game.remove(loser)
+        
         remaining_players_text = "\n".join(f"• {p.full_name}" for p in players_in_game)
-        await bot.edit_message_text(
-            text=f"🍻 <b>Раунд {round_num}</b> 🍻\n\n"
-                 f"Выбывает... <b>{loser.full_name}</b>! 😖\n\n"
-                 f"<i>Остались в игре:</i>\n{remaining_players_text}\n\n"
-                 f"Следующий раунд через 5 секунд...",
-            chat_id=chat_id, message_id=game.lobby_message_id, parse_mode='HTML'
+        
+        # Отправляем новое сообщение о результате раунда
+        await bot.send_message(
+            chat_id,
+            text=f"Выбывает... <b>{loser.full_name}</b>! 😖\n\n"
+                 f"<i>Остались в игре:</i>\n{remaining_players_text}",
+            parse_mode='HTML'
         )
         round_num += 1
-        await asyncio.sleep(5)
+        await asyncio.sleep(7) # Пауза перед следующим раундом
+        
     winner = players_in_game[0]
     prize = game.stake * len(game.players)
     await db.change_rating(winner.id, prize)
+    
     winner_text = (
         f"🏆 <b>ПОБЕДИТЕЛЬ!</b> 🏆\n\n"
-        f"Поздравляем, <b>{winner.full_name}</b>! Он забирает весь банк: <b>{prize} 🍺</b>!\n\n"
+        f"Поздравляем, <b>{winner.full_name}</b>! Он продержался до конца и забирает весь банк: <b>{prize} 🍺</b>!\n\n"
         f"<i>Игра окончена.</i>"
     )
-    await bot.edit_message_text(text=winner_text, chat_id=chat_id, message_id=game.lobby_message_id, parse_mode='HTML')
+    # Отправляем и закрепляем сообщение о победе
+    winner_message = await bot.send_message(chat_id, text=winner_text, parse_mode='HTML')
     with suppress(TelegramBadRequest):
-        await bot.pin_chat_message(chat_id=chat_id, message_id=game.lobby_message_id, disable_notification=True)
-        asyncio.create_task(unpin_after_delay(chat_id, game.lobby_message_id, bot, 120))
+        await bot.pin_chat_message(chat_id=chat_id, message_id=winner_message.message_id, disable_notification=True)
+        asyncio.create_task(unpin_after_delay(chat_id, winner_message.message_id, bot, 120))
+        
     del active_games[chat_id]
     chat_cooldowns[chat_id] = datetime.now()
 
