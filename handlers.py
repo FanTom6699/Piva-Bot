@@ -6,7 +6,9 @@ from contextlib import suppress
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import CommandStart, Command, Filter, ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER, IS_KICKED, IS_LEFT
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+from aiogram.filters import CommandStart, Command, Filter, ChatMemberUpdatedFilter
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -56,8 +58,8 @@ BEER_COOLDOWN_SECONDS = 7200
 ROULETTE_COOLDOWN_SECONDS = 600
 ROULETTE_LOBBY_TIMEOUT_SECONDS = 60
 
-active_games = {}  # chat_id -> GameState
-chat_cooldowns = {}  # chat_id -> datetime
+active_games = {}
+chat_cooldowns = {}
 
 
 # --- ФРАЗЫ ДЛЯ КОМАНДЫ /beer ---
@@ -103,11 +105,13 @@ async def check_user_registered(message_or_callback: Message | CallbackQuery, bo
 
 
 # --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА ---
-@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_NOT_MEMBER >> IS_MEMBER))
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=ChatMemberUpdatedFilter.NOT_MEMBER >> ChatMemberUpdatedFilter.MEMBER))
 async def on_bot_join_group(event: ChatMemberUpdated):
     await db.add_chat(event.chat.id, event.chat.title)
 
-@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_MEMBER >> (IS_KICKED | IS_LEFT)))
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=ChatMemberUpdatedFilter.MEMBER >> (ChatMemberUpdatedFilter.KICKED | ChatMemberUpdatedFilter.LEFT)))
 async def on_bot_leave_group(event: ChatMemberUpdated):
     await db.remove_chat(event.chat.id)
 
