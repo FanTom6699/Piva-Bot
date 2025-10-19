@@ -6,7 +6,10 @@ from contextlib import suppress
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import CommandStart, Command, ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER, CallbackData
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+from aiogram.filters import CommandStart, Command, ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER
+from aiogram.filters.callback_data import CallbackData
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from aiogram.exceptions import TelegramBadRequest
 
 from database import Database
@@ -15,6 +18,11 @@ from utils import format_time_delta
 # --- Инициализация ---
 router = Router()
 db = Database()
+db_path = '/data/bot_database.db' # Путь для Render
+# Для локального тестирования можно закомментировать строку выше и раскомментировать следующую
+# db_path = 'bot_database.db' 
+db = Database(db_name=db_path)
+
 
 # --- Константы и переменные состояния ---
 BEER_COOLDOWN_SECONDS = 7200
@@ -79,6 +87,7 @@ async def check_user_registered(message_or_callback: Message | CallbackQuery, bo
         await message_or_callback.reply(text, reply_markup=keyboard, parse_mode='HTML')
     else: # CallbackQuery
         await message_or_callback.answer("Сначала нужно зарегистрироваться!", show_alert=True)
+        # Отправляем сообщение в чат, так как в колбэке нельзя отправить новое сообщение с клавиатурой
         await message_or_callback.message.answer(text, reply_markup=keyboard, parse_mode='HTML')
         
     return False
@@ -294,7 +303,8 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
         await callback.answer("Вы присоединились к игре!")
         
         if len(game.players) == game.max_players:
-            game.task.cancel() # Отменяем таймер
+            if game.task:
+                game.task.cancel()
             await start_roulette_game(chat_id, bot)
         else:
             await callback.message.edit_text(
@@ -307,6 +317,7 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
         if user.id not in game.players:
             return await callback.answer("Вы не в этой игре.", show_alert=True)
         if user.id == game.creator.id:
+            # Вместо этого создатель должен отменить игру
             return await callback.answer("Создатель не может покинуть игру. Только отменить.", show_alert=True)
         
         del game.players[user.id]
@@ -322,7 +333,8 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
         if user.id != game.creator.id:
             return await callback.answer("Только создатель может отменить игру.", show_alert=True)
         
-        game.task.cancel() # Отменяем таймер
+        if game.task:
+            game.task.cancel()
         
         # Возвращаем ставки всем
         for player_id in game.players:
@@ -355,6 +367,9 @@ async def schedule_game_start(chat_id: int, bot: Bot):
             )
 
 async def start_roulette_game(chat_id: int, bot: Bot):
+    if chat_id not in active_games:
+        return # Игра была отменена пока мы ждали
+        
     game = active_games[chat_id]
     
     with suppress(TelegramBadRequest):
@@ -405,7 +420,6 @@ async def start_roulette_game(chat_id: int, bot: Bot):
     
     with suppress(TelegramBadRequest):
         await bot.pin_chat_message(chat_id, game.lobby_message_id, disable_notification=True)
-        # Запускаем задачу на открепление сообщения через 2 минуты
         asyncio.create_task(unpin_after_delay(chat_id, game.lobby_message_id, bot, 120))
         
     del active_games[chat_id]
@@ -415,3 +429,21 @@ async def unpin_after_delay(chat_id: int, message_id: int, bot: Bot, delay: int)
     await asyncio.sleep(delay)
     with suppress(TelegramBadRequest):
         await bot.unpin_chat_message(chat_id, message_id)
+
+
+# --- Обработчики событий чата ---
+@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_NOT_MEMBER >> IS_MEMBER))
+async def on_bot_join_group(event: ChatMemberUpdated, bot: Bot):
+    me = await bot.get_me()
+    await bot.send_message(
+        event.chat.id,
+        text=(
+            "<b>Всем привет в этом чате!</b> 🍻\n\n"
+            "Я Piva Bot, и я здесь, чтобы вести учет вашего пивного рейтинга!\n\n"
+            "<b>Как начать:</b>\n"
+            "1️⃣ Каждый участник должен написать мне в личные сообщения -> @" + me.username + " и нажать /start.\n"
+            "2️⃣ Используйте команды /beer, /top и /roulette.\n\n"
+            "Да начнутся пивные игры!"
+        ),
+        parse_mode='HTML'
+    )
