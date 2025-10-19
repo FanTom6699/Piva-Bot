@@ -8,6 +8,7 @@ class Database:
 
     async def initialize(self):
         async with aiosqlite.connect(self.db_name) as db:
+            # Таблица пользователей
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -18,8 +19,32 @@ class Database:
                     last_beer_time TEXT
                 )
             ''')
+            # НОВАЯ ТАБЛИЦА ДЛЯ ЧАТОВ
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS chats (
+                    chat_id INTEGER PRIMARY KEY,
+                    title TEXT
+                )
+            ''')
             await db.commit()
     
+    # --- Функции для чатов ---
+    async def add_chat(self, chat_id: int, title: str):
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("INSERT OR REPLACE INTO chats (chat_id, title) VALUES (?, ?)", (chat_id, title))
+            await db.commit()
+
+    async def remove_chat(self, chat_id: int):
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
+            await db.commit()
+
+    async def get_all_chat_ids(self):
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT chat_id FROM chats")
+            return [row[0] for row in await cursor.fetchall()]
+
+    # --- Функции для пользователей ---
     async def user_exists(self, user_id):
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute('SELECT 1 FROM users WHERE user_id = ?', (user_id,))
@@ -32,6 +57,16 @@ class Database:
                 (user_id, first_name, last_name, username, 0)
             )
             await db.commit()
+            
+    async def get_all_user_ids(self):
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT user_id FROM users")
+            return [row[0] for row in await cursor.fetchall()]
+
+    async def get_total_users_count(self):
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM users")
+            return (await cursor.fetchone())[0]
 
     async def get_user_beer_rating(self, user_id):
         async with aiosqlite.connect(self.db_name) as db:
@@ -62,9 +97,7 @@ class Database:
             )
             return await cursor.fetchall()
 
-    # --- НОВАЯ ФУНКЦИЯ ДЛЯ ИЗМЕНЕНИЯ РЕЙТИНГА ---
     async def change_rating(self, user_id, amount: int):
-        """Изменяет рейтинг пользователя на указанную величину (может быть отрицательной)"""
         async with aiosqlite.connect(self.db_name) as db:
             await db.execute(
                 'UPDATE users SET beer_rating = beer_rating + ? WHERE user_id = ?',
