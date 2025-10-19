@@ -5,10 +5,10 @@ from datetime import datetime, timedelta
 from contextlib import suppress
 
 from aiogram import Router, F, Bot
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ: Убедимся, что ChatMemberUpdated импортирован ---
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
-# --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
-from aiogram.filters import CommandStart, Command, Filter, ChatMemberUpdatedFilter
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ: Убираем лишние фильтры ---
+from aiogram.filters import CommandStart, Command, Filter
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -104,16 +104,22 @@ async def check_user_registered(message_or_callback: Message | CallbackQuery, bo
     return False
 
 
-# --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА ---
-# --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=(ChatMemberUpdatedFilter.KICKED | ChatMemberUpdatedFilter.LEFT) >> ChatMemberUpdatedFilter.MEMBER))
-async def on_bot_join_group(event: ChatMemberUpdated):
-    await db.add_chat(event.chat.id, event.chat.title)
+# --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА (ВАШ ИСПРАВЛЕННЫЙ КОД) ---
+@router.my_chat_member()
+async def handle_bot_membership(event: ChatMemberUpdated):
+    """
+    Отслеживает, когда бот добавлен или удалён из чата.
+    """
+    old_status = event.old_chat_member.status
+    new_status = event.new_chat_member.status
 
-# --- И ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=ChatMemberUpdatedFilter.MEMBER >> (ChatMemberUpdatedFilter.KICKED | ChatMemberUpdatedFilter.LEFT)))
-async def on_bot_leave_group(event: ChatMemberUpdated):
-    await db.remove_chat(event.chat.id)
+    # Бота добавили в чат
+    if old_status in ("left", "kicked") and new_status in ("member", "administrator"):
+        await db.add_chat(event.chat.id, event.chat.title)
+
+    # Бота удалили из чата
+    elif old_status in ("member", "administrator") and new_status in ("left", "kicked"):
+        await db.remove_chat(event.chat.id)
 
 
 # --- АДМИН-ПАНЕЛЬ (admin_router) ---
@@ -189,6 +195,8 @@ async def cmd_start(message: Message):
         rating = await db.get_user_beer_rating(user.id)
         await message.answer(f"С возвращением, {user.full_name}! 🍻\nТвой текущий рейтинг: {rating} 🍺.")
 
+# ... (Остальной код для /beer, /top, /roulette остается без изменений) ...
+# ... (Просто скопируйте его из моего предыдущего ответа) ...
 @router.message(Command("beer"))
 async def cmd_beer(message: Message, bot: Bot):
     if message.chat.type != 'private' and not await check_user_registered(message, bot):
