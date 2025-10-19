@@ -271,6 +271,26 @@ async def cmd_start(message: Message):
         rating = await db.get_user_beer_rating(user.id)
         await message.answer(f"С возвращением, {user.full_name}! 🍻\nТвой текущий рейтинг: {rating} 🍺.")
 
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    help_text = (
+        "<b>🍻 Справка по командам бота 🍻</b>\n\n"
+        "Здесь собраны все доступные команды и их описание.\n\n"
+        "--- --- ---\n"
+        "<b>Основные команды</b>\n"
+        "• <code>/start</code> - Зарегистрироваться или проверить свой профиль.\n"
+        "• <code>/beer</code> - Испытать удачу (раз в 2 часа).\n"
+        "• <code>/top</code> - Показать таблицу лидеров.\n\n"
+        "--- --- ---\n"
+        "<b>Мини-игры</b>\n"
+        "• <code>/roulette &lt;ставка&gt; &lt;игроки&gt;</code> - Запустить 'Пивную рулетку' в группе.\n"
+        "• <code>/ladder &lt;ставка&gt;</code> - Начать игру в 'Пивную лесенку'.\n\n"
+        "--- --- ---\n"
+        "<b>Прочее</b>\n"
+        "• <code>/id</code> - Узнать свой User ID и ID текущего чата."
+    )
+    await message.answer(help_text, parse_mode='HTML')
+
 @router.message(Command("id"))
 async def cmd_id(message: Message):
     await message.reply(
