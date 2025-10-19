@@ -7,7 +7,6 @@ from contextlib import suppress
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command, Filter
-from aiogram.filters.chat_member_updated import ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER, IS_KICKED, IS_LEFT
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -103,14 +102,24 @@ async def check_user_registered(message_or_callback: Message | CallbackQuery, bo
     return False
 
 
-# --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА ---
-@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=(ChatMemberUpdatedFilter.KICKED | ChatMemberUpdatedFilter.LEFT) >> ChatMemberUpdatedFilter.MEMBER))
-async def on_bot_join_group(event: ChatMemberUpdated):
-    await db.add_chat(event.chat.id, event.chat.title)
+# --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА (ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ) ---
+@router.my_chat_member()
+async def handle_bot_membership(event: ChatMemberUpdated):
+    """
+    Отслеживает, когда бот добавлен или удалён из чата.
+    """
+    old_status = event.old_chat_member.status
+    new_status = event.new_chat_member.status
 
-@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=ChatMemberUpdatedFilter.MEMBER >> (ChatMemberUpdatedFilter.KICKED | ChatMemberUpdatedFilter.LEFT)))
-async def on_bot_leave_group(event: ChatMemberUpdated):
-    await db.remove_chat(event.chat.id)
+    # Бота добавили в чат
+    if old_status in ("left", "kicked") and new_status in ("member", "administrator"):
+        await db.add_chat(event.chat.id, event.chat.title)
+        # Можно отправить приветствие, если нужно
+        # await event.bot.send_message(event.chat.id, "Всем привет!")
+
+    # Бота удалили из чата
+    elif old_status in ("member", "administrator") and new_status in ("left", "kicked"):
+        await db.remove_chat(event.chat.id)
 
 
 # --- АДМИН-ПАНЕЛЬ (admin_router) ---
@@ -175,7 +184,6 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
         parse_mode='HTML'
     )
 
-# --- НОВАЯ АДМИН-КОМАНДА ДЛЯ ВЫХОДА ИЗ ГРУППЫ ---
 @admin_router.message(F.text.lower() == "бот выйди", IsAdmin())
 async def admin_leave_chat(message: Message, bot: Bot):
     if message.chat.type in ['group', 'supergroup']:
