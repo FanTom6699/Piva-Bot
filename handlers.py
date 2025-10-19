@@ -58,6 +58,7 @@ ROULETTE_LOBBY_TIMEOUT_SECONDS = 60
 
 active_games = {}
 chat_cooldowns = {}
+user_spam_tracker = {}
 
 
 # --- ФРАЗЫ ДЛЯ КОМАНДЫ /beer ---
@@ -102,20 +103,29 @@ async def check_user_registered(message_or_callback: Message | CallbackQuery, bo
     return False
 
 
-# --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА (ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ) ---
+# --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА ---
 @router.my_chat_member()
-async def handle_bot_membership(event: ChatMemberUpdated):
-    """
-    Отслеживает, когда бот добавлен или удалён из чата.
-    """
+async def handle_bot_membership(event: ChatMemberUpdated, bot: Bot):
     old_status = event.old_chat_member.status
     new_status = event.new_chat_member.status
 
     # Бота добавили в чат
     if old_status in ("left", "kicked") and new_status in ("member", "administrator"):
         await db.add_chat(event.chat.id, event.chat.title)
-        # Можно отправить приветствие, если нужно
-        # await event.bot.send_message(event.chat.id, "Всем привет!")
+        
+        me = await bot.get_me()
+        await bot.send_message(
+            event.chat.id,
+            text=(
+                "<b>Всем привет в этом чате!</b> 🍻\n\n"
+                "Я Piva Bot, и я здесь, чтобы вести учет вашего пивного рейтинга!\n\n"
+                "<b>Как начать:</b>\n"
+                "1️⃣ Каждый участник должен написать мне в личные сообщения -> @" + me.username + " и нажать /start.\n"
+                "2️⃣ Используйте команды /beer, /top и /roulette.\n\n"
+                "Да начнутся пивные игры!"
+            ),
+            parse_mode='HTML'
+        )
 
     # Бота удалили из чата
     elif old_status in ("member", "administrator") and new_status in ("left", "kicked"):
@@ -146,7 +156,7 @@ async def cq_admin_stats(callback: CallbackQuery):
 @admin_router.callback_query(AdminCallbackData.filter(F.action == "broadcast"), IsAdmin())
 async def cq_admin_broadcast_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminBroadcast.waiting_for_message)
-    await callback.message.edit_text("Пожалуйста, отправьте сообщение для рассылки. Вы можете использовать форматирование, фото, видео и т.д.")
+    await callback.message.edit_text("Пожалуйста, отправьте сообщение для рассылки...")
     await callback.answer()
 
 @admin_router.message(AdminBroadcast.waiting_for_message, IsAdmin())
@@ -206,10 +216,17 @@ async def cmd_start(message: Message):
 
 @router.message(Command("beer"))
 async def cmd_beer(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    
+    now = datetime.now()
+    if user_id in user_spam_tracker:
+        if (now - user_spam_tracker[user_id]).total_seconds() < 5:
+            return
+    user_spam_tracker[user_id] = now
+
     if message.chat.type != 'private' and not await check_user_registered(message, bot):
         return
 
-    user_id = message.from_user.id
     last_beer_time = await db.get_last_beer_time(user_id)
     
     if last_beer_time:
