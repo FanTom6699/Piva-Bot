@@ -437,8 +437,8 @@ async def end_ladder_game(callback: CallbackQuery, game: LadderGameState, is_win
     if game.chat_id in active_ladder_games:
         del active_ladder_games[game.chat_id]
 
- async def start_ladder_game(chat: Chat, user: User, bot: Bot, stake: int):
-    await bot.send_chat_action(chat.id, ChatActions.TYPING)
+async def start_ladder_game(chat: Chat, user: User, bot: Bot, stake: int, original_message: Message = None):
+    await bot.send_chat_action(chat_id=chat.id, action=ChatActions.TYPING)
     await asyncio.sleep(0.3)
     await db.change_rating(user.id, -stake)
     correct_path = [random.randint(0, 1) for _ in range(LADDER_LEVELS)]
