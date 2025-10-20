@@ -438,17 +438,17 @@ async def cmd_ladder(message: Message, bot: Bot):
     correct_path = [random.randint(0, 1) for _ in range(LADDER_LEVELS)]
 
     if user.id == config.ADMIN_ID:
-        path_str = " -> ".join(["Л" if choice == 0 else "П" for choice in correct_path])
-        with suppress(TelegramBadRequest):
-            await bot.send_message(
-                chat_id=user.id,
-                text=f"🤫 Тсс... Секретная комбинация:
+    path_str = " -> ".join(["Л" if choice == 0 else "П" for choice in correct_path])
+    with suppress(TelegramBadRequest):
+        await bot.send_message(
+            chat_id=user.id,
+            text=f"""🤫 Тсс... Секретная комбинация:
 
 <code>{path_str}</code>
 
-(Л - левая, П - правая)",
-                parse_mode='HTML'
-            )
+(Л - левая, П - правая)""",
+            parse_mode='HTML'
+        )
 
     rewards = calculate_ladder_rewards(stake)
     game = LadderGameState(user.id, chat_id, 0, stake, correct_path)
