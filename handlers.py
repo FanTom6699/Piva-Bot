@@ -7,8 +7,8 @@ import logging
 from typing import List
 
 from aiogram import Router, F, Bot
-# Добавляем ChatActions
-from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton, User, Chat, ChatActions
+from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton, User, Chat
+from aiogram.enums import ChatActions
 from aiogram.filters import CommandStart, Command, Filter, StateFilter
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
