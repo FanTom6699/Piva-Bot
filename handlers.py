@@ -45,9 +45,12 @@ class AdminCallbackData(CallbackData, prefix="admin"):
 class RouletteCallbackData(CallbackData, prefix="roulette"):
     action: str
 
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ: Добавляем stake в CallbackData ---
 class LadderCallbackData(CallbackData, prefix="ladder"):
     action: str
-    stake: int = 0
+    level: int = 0
+    choice: int = 0
+    stake: int = 0 # Будет использоваться только для кнопки "Играть снова"
 
 
 # --- КЛАССЫ И ПЕРЕМЕННЫЕ СОСТОЯНИЯ ---
@@ -115,22 +118,12 @@ def calculate_ladder_rewards(stake: int) -> List[float]:
 
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-def format_time_delta(delta: timedelta) -> str:
-    parts = []
-    total_seconds = int(delta.total_seconds())
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    if hours > 0: parts.append(f"{hours} ч")
-    if minutes > 0: parts.append(f"{minutes} мин")
-    if seconds > 0 or not parts: parts.append(f"{seconds} сек")
-    return " ".join(parts)
-    
 async def check_user_registered(message_or_callback: Message | CallbackQuery, bot: Bot) -> bool:
     user = message_or_callback.from_user
     if await db.user_exists(user.id):
         return True
     me = await bot.get_me()
-    start_link = f"https://t.me/{me.username}?start=register"
+    start_link = f"https.me/{me.username}?start=register"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✍️ Зарегистрироваться", url=start_link)]])
     text = (
         "<b>Эй, новичок!</b> 🍻\n\n"
@@ -382,15 +375,12 @@ async def schedule_ladder_timeout(chat_id: int, player_id: int, message_id: int,
             game = active_ladder_games[chat_id]
             if game.player_id == player_id and game.current_level == 1 and not game.is_finished:
                 await db.change_rating(player_id, stake)
-                
-                # --- ИЗМЕНЕНИЕ ЗДЕСЬ: Отправляем новое сообщение, затем удаляем старое ---
-                await bot.send_message(
+                await bot.edit_message_text(
+                    text="Игра в 'Лесенку' отменена из-за бездействия. Ваша ставка возвращена.",
                     chat_id=chat_id,
-                    text=f"⏰ Игра в 'Лесенку' отменена из-за бездействия. Ваша ставка {stake} 🍺 возвращена."
+                    message_id=message_id,
+                    reply_markup=None
                 )
-                with suppress(TelegramBadRequest):
-                    await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                
                 del active_ladder_games[chat_id]
     except asyncio.CancelledError:
         pass
@@ -415,10 +405,7 @@ async def generate_ladder_keyboard(game: LadderGameState, rewards: List[float], 
                     else:
                         btn_text = " "
                 elif i == game.current_level:
-                    if not is_win: # Если это проигрыш
-                        btn_text = f"🍺 {rewards[level_idx]}" if is_correct_path else "❌"
-                    else: # Если это выигрыш, просто показываем путь
-                         btn_text = f"✅ {rewards[level_idx]} 🍺" if is_correct_path else " "
+                    btn_text = f"🍺 {rewards[level_idx]}" if is_correct_path else "❌"
                 else:
                     btn_text = f"🍺 {rewards[level_idx]}" if is_correct_path else "💨"
             else:
@@ -429,17 +416,8 @@ async def generate_ladder_keyboard(game: LadderGameState, rewards: List[float], 
                         btn_text = " "
                 else:
                     btn_text = f"{rewards[level_idx]} 🍺"
-            
-            # --- ИЗМЕНЕНИЕ ЗДЕСЬ: Все кнопки на доске "reveal" неактивны ---
-            if reveal:
-                callback_data = "do_nothing"
-            else:
-                callback_data = LadderCallbackData(action="play", level=i, choice=j).pack() if is_active else "do_nothing"
-                
-            row.append(InlineKeyboardButton(text=btn_text, callback_data=callback_data))
+            row.append(InlineKeyboardButton(text=btn_text, callback_data=LadderCallbackData(action="play", level=i, choice=j).pack() if is_active else "do_nothing"))
         keyboard.append(row)
-    
-    # --- ИЗМЕНЕНИЕ ЗДЕСЬ: Убираем "Забрать выигрыш" из финальной доски ---
     if not game.is_finished:
         cash_out_text = f"💰 Забрать выигрыш ({game.current_win} 🍺)" if game.current_win > 0 else "💰 Забрать ставку"
         keyboard.append([InlineKeyboardButton(text=cash_out_text, callback_data=LadderCallbackData(action="cash_out").pack())])
@@ -455,81 +433,19 @@ async def end_ladder_game(callback: CallbackQuery, game: LadderGameState, is_win
     if game.task:
         game.task.cancel()
         game.task = None
-    
-    # --- ИЗМЕНЕНИЕ ЗДЕСЬ: Логика для нового финального сообщения ---
-    # Сначала удаляем старое сообщение
-    with suppress(TelegramBadRequest):
-        await callback.message.delete()
-        
-    # Готовим кнопку "Играть снова"
-    play_again_button = InlineKeyboardButton(
-        text=f"🔁 Играть снова ({game.stake} 🍺)",
-        callback_data=LadderCallbackData(action="play_again", stake=game.stake).pack()
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[play_again_button]])
-
     if is_win:
         win_amount = game.current_win if game.current_win > 0 else game.stake
         await db.change_rating(game.player_id, int(win_amount))
-        text = f"🎉 <b>Победа в Лесенке!</b> 🎉\n\nИгрок: <b>{callback.from_user.full_name}</b>\nЗабрал выигрыш: <b>+{int(win_amount)} 🍺</b>"
-        
-        # Отправляем новое сообщение о победе
-        await callback.message.answer(text, reply_markup=keyboard, parse_mode='HTML')
-        
-    else: # Проигрыш
-        text = f"💥 <b>Неудача в Лесенке!</b> 💥\n\nИгрок: <b>{callback.from_user.full_name}</b>\nОшибка на Уровне {game.current_level}!\nСтавка <b>{game.stake} 🍺</b> сгорела."
-        
-        # Генерируем финальную доску с раскрытыми картами
+        text = f"🎉 <b>Выигрыш!</b> 🎉\n\nВы решили остановиться и забрать <b>{win_amount} 🍺</b>. Поздравляем!"
         rewards = calculate_ladder_rewards(game.stake)
-        final_board_text = await generate_final_board_text(game, rewards, is_win=False)
-        
-        # Отправляем новое сообщение с доской
-        await callback.message.answer(f"{text}\n\n{final_board_text}", reply_markup=keyboard, parse_mode='HTML')
-
+        keyboard = await generate_ladder_keyboard(game, rewards, reveal=True) # Показываем путь даже при выигрыше
+    else:
+        text = f"💥 <b>Вы проиграли на Уровне {game.current_level}!</b> 💥\n\nВаша ставка в {game.stake} 🍺 сгорела.\nВот как выглядела выигрышная комбинация:"
+        rewards = calculate_ladder_rewards(game.stake)
+        keyboard = await generate_ladder_keyboard(game, rewards, reveal=True)
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
     if game.chat_id in active_ladder_games:
         del active_ladder_games[game.chat_id]
-
-# --- НОВАЯ ФУНКЦИЯ: Генерирует текстовую доску для финала ---
-async def generate_final_board_text(game: LadderGameState, rewards: List[float], is_win: bool) -> str:
-    board_lines = []
-    for i in range(LADDER_LEVELS, 0, -1):
-        level_idx = i - 1
-        row = ["", ""]
-        
-        is_correct_path_0 = (0 == game.correct_path[level_idx])
-        is_correct_path_1 = (1 == game.correct_path[level_idx])
-
-        if i < game.current_level: # Пройденные уровни
-            if 0 == game.player_choices.get(level_idx):
-                row[0] = "✅"
-                row[1] = "⬛" # Скрываем вторую
-            else:
-                row[0] = "⬛"
-                row[1] = "✅"
-                
-        elif i == game.current_level and not is_win: # Уровень проигрыша
-            if 0 == game.last_choice:
-                row[0] = "❌"
-                row[1] = "🍺"
-            else:
-                row[0] = "🍺"
-                row[1] = "❌"
-                
-        elif i == game.current_level and is_win: # Уровень выигрыша (если забрал)
-            if 0 == game.player_choices.get(level_idx - 1): # -1 т.к. current_level уже +1
-                row[0] = "✅"
-                row[1] = "⬛"
-            else:
-                row[0] = "⬛"
-                row[1] = "✅"
-        else: # Будущие уровни
-            row[0] = "🍺" if is_correct_path_0 else "💨"
-            row[1] = "🍺" if is_correct_path_1 else "💨"
-
-        # Форматируем строку уровня
-        board_lines.append(f"<code>{rewards[level_idx]:<7} | {row[0]} | {row[1]}</code>")
-
-    return "\n".join(board_lines)
 
 async def start_ladder_game(chat: Chat, user: User, bot: Bot, stake: int):
     await bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
@@ -567,20 +483,26 @@ async def cmd_ladder(message: Message, bot: Bot):
         return await message.reply(f"У вас недостаточно пива для этой ставки. Нужно {stake} 🍺, у вас {balance} 🍺.")
     await start_ladder_game(message.chat, message.from_user, bot, stake)
 
-@router.callback_query(LadderCallbackData.filter(F.action != "play_again"))
-async def on_ladder_callback(callback: CallbackQuery, callback_data: LadderCallbackData, bot: Bot):
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ: Разделили обработчики ---
+
+# Обработчик для кнопок "Играть" и "Забрать"
+@router.callback_query(LadderCallbackData.filter(F.action.in_({"play", "cash_out"})))
+async def on_ladder_game_callback(callback: CallbackQuery, callback_data: LadderCallbackData, bot: Bot):
     chat_id = callback.message.chat.id
     user = callback.from_user
+    
     if chat_id not in active_ladder_games:
         return await callback.answer("Эта игра больше не активна.", show_alert=True)
+        
     game = active_ladder_games[chat_id]
+    
     if user.id != game.player_id:
         return await callback.answer("Это не ваша игра!", show_alert=True)
-    
-    action = callback_data.action
-    
+        
     if game.is_finished:
-        return await callback.answer()
+        return await callback.answer() # Игнорируем нажатия на завершенной игре
+
+    action = callback_data.action
 
     if action == "cash_out":
         if game.current_win == 0 and game.current_level == 1:
@@ -593,12 +515,15 @@ async def on_ladder_callback(callback: CallbackQuery, callback_data: LadderCallb
         level, choice = callback_data.level, callback_data.choice
         if level != game.current_level:
             return await callback.answer("Сейчас не ваш ход.", show_alert=True)
+            
         if game.current_level == 1 and game.task:
             game.task.cancel()
             game.task = None
+            
         await callback.answer()
         game.player_choices[level - 1] = choice
         rewards = calculate_ladder_rewards(game.stake)
+        
         if choice == game.correct_path[level - 1]:
             game.current_level += 1
             game.current_win = rewards[level - 1]
