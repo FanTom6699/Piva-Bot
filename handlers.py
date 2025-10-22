@@ -8,9 +8,7 @@ from typing import List
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton, User, Chat
-# --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
 from aiogram.enums.chat_action import ChatAction
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 from aiogram.filters import CommandStart, Command, Filter, StateFilter
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
@@ -19,12 +17,17 @@ from aiogram.exceptions import TelegramBadRequest
 
 import config
 from database import Database
-from utils import format_time_delta
+# Убираем импорт utils, так как функция теперь здесь
+# from utils import format_time_delta
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 router = Router()
 admin_router = Router()
-db = Database(db_name='/data/bot_database.db')
+# Убедитесь, что путь к БД правильный для Render
+db_path = '/data/bot_database.db' # Path for Render
+# Для локального тестирования закомментируйте строку выше и раскомментируйте следующую
+# db_path = 'bot_database.db'
+db = Database(db_name=db_path)
 
 
 # --- FSM СОСТОЯНИЯ ---
@@ -118,12 +121,24 @@ def calculate_ladder_rewards(stake: int) -> List[float]:
 
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+
+def format_time_delta(delta: timedelta) -> str:
+    """Форматирует timedelta в строку 'Ч ч М м С с'."""
+    parts = []
+    total_seconds = int(delta.total_seconds())
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours > 0: parts.append(f"{hours} ч")
+    if minutes > 0: parts.append(f"{minutes} мин")
+    if seconds > 0 or not parts: parts.append(f"{seconds} сек")
+    return " ".join(parts)
+    
 async def check_user_registered(message_or_callback: Message | CallbackQuery, bot: Bot) -> bool:
     user = message_or_callback.from_user
     if await db.user_exists(user.id):
         return True
     me = await bot.get_me()
-    start_link = f"https.me/{me.username}?start=register"
+    start_link = f"https://t.me/{me.username}?start=register" # Исправленная ссылка
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✍️ Зарегистрироваться", url=start_link)]])
     text = (
         "<b>Эй, новичок!</b> 🍻\n\n"
@@ -134,7 +149,8 @@ async def check_user_registered(message_or_callback: Message | CallbackQuery, bo
         await message_or_callback.reply(text, reply_markup=keyboard, parse_mode='HTML')
     else:
         await message_or_callback.answer("Сначала нужно зарегистрироваться!", show_alert=True)
-        await message_or_callback.message.answer(text, reply_markup=keyboard, parse_mode='HTML')
+        # Отправляем новое сообщение, так как answer() не может слать клавиатуры
+        await bot.send_message(message_or_callback.message.chat.id, text, reply_markup=keyboard, parse_mode='HTML')
     return False
 
 
@@ -170,7 +186,8 @@ async def cmd_admin_panel(message: Message):
 @admin_router.callback_query(AdminCallbackData.filter(), IsAdmin())
 async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCallbackData, state: FSMContext):
     action = callback_data.action
-    await callback.message.edit_reply_markup()
+    await callback.answer() # Отвечаем сразу
+    await callback.message.edit_reply_markup(reply_markup=None) # Убираем кнопки
     if action == "stats":
         total_users = await db.get_total_users_count()
         all_chats = await db.get_all_chat_ids()
@@ -186,7 +203,6 @@ async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCal
     elif action == "give_beer":
         await state.set_state(AdminStates.give_beer_user)
         await callback.message.answer("Кому выдать пиво? Отправьте ID, @username или перешлите сообщение. Для отмены введите /cancel")
-    await callback.answer()
 
 @admin_router.message(AdminStates.broadcast_message, IsAdmin())
 async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot):
@@ -202,7 +218,7 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
                 success_users += 1
             except Exception:
                 failed_users += 1
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05) # Задержка для обхода лимитов
     success_chats, failed_chats = 0, 0
     for chat_id in chat_ids:
         with suppress(TelegramBadRequest):
@@ -211,7 +227,7 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
                 success_chats += 1
             except Exception:
                 failed_chats += 1
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
     await message.answer(
         f"<b>📢 Рассылка завершена!</b>\n\n"
         f"<b>Пользователи:</b>\n✅ Успешно: {success_users}\n❌ Неудачно: {failed_users}\n\n"
@@ -224,9 +240,9 @@ async def process_give_beer_user(message: Message, state: FSMContext):
     target_id = None
     if message.forward_from:
         target_id = message.forward_from.id
-    elif message.text.startswith('@'):
+    elif message.text and message.text.startswith('@'):
         target_id = await db.get_user_by_username(message.text)
-    elif message.text.isdigit():
+    elif message.text and message.text.isdigit():
         target_id = int(message.text)
     if not target_id or not await db.user_exists(target_id):
         await message.reply("Пользователь не найден в базе данных. Попробуйте другой способ или введите /cancel для отмены.")
@@ -237,7 +253,7 @@ async def process_give_beer_user(message: Message, state: FSMContext):
 
 @admin_router.message(AdminStates.give_beer_amount, IsAdmin())
 async def process_give_beer_amount(message: Message, state: FSMContext, bot: Bot):
-    if not message.text.lstrip('-').isdigit():
+    if not message.text or not message.text.lstrip('-').isdigit():
         await message.reply("Это не число. Введите сумму (например, `100` или `-50`). Для отмены введите /cancel.")
         return
     amount = int(message.text)
@@ -271,7 +287,17 @@ async def cmd_start(message: Message):
     user = message.from_user
     if not await db.user_exists(user.id):
         await db.add_user(user.id, user.first_name, user.last_name, user.username)
-        await message.answer(f"Привет, {user.full_name}! 👋\nТвой начальный рейтинг: 0 🍺.")
+        welcome_text = (
+            f"Привет, {user.full_name}! 👋\n"
+            f"Добро пожаловать в наш пивной клуб! Твой начальный рейтинг: 0 🍺.\n\n"
+            f"Вот список доступных команд:\n"
+            f"• `/beer` - Испытать удачу (раз в 2 часа).\n"
+            f"• `/top` - Показать таблицу лидеров.\n"
+            f"• `/roulette <ставка> <игроки>` - Запустить 'Пивную рулетку'.\n"
+            f"• `/ladder <ставка>` - Начать игру в 'Пивную лесенку'.\n"
+            f"• `/help` - Показать эту справку."
+        )
+        await message.answer(welcome_text)
     else:
         rating = await db.get_user_beer_rating(user.id)
         await message.answer(f"С возвращением, {user.full_name}! 🍻\nТвой текущий рейтинг: {rating} 🍺.")
@@ -366,7 +392,7 @@ async def schedule_ladder_timeout(chat_id: int, player_id: int, message_id: int,
         await asyncio.sleep(LADDER_INACTIVITY_TIMEOUT_SECONDS)
         if chat_id in active_ladder_games:
             game = active_ladder_games[chat_id]
-            if game.player_id == player_id and game.current_level == 1:
+            if game.player_id == player_id and game.current_level == 1 and not game.is_finished:
                 await db.change_rating(player_id, stake)
                 await bot.edit_message_text(
                     text="Игра в 'Лесенку' отменена из-за бездействия. Ваша ставка возвращена.",
@@ -425,6 +451,7 @@ async def end_ladder_game(callback: CallbackQuery, game: LadderGameState, is_win
     game.is_finished = True
     if game.task:
         game.task.cancel()
+        game.task = None # Убираем ссылку на завершенную задачу
     if is_win:
         win_amount = game.current_win if game.current_win > 0 else game.stake
         await db.change_rating(game.player_id, int(win_amount))
@@ -435,15 +462,20 @@ async def end_ladder_game(callback: CallbackQuery, game: LadderGameState, is_win
         text = f"💥 <b>Вы проиграли на Уровне {game.current_level}!</b> 💥\n\nВаша ставка в {game.stake} 🍺 сгорела.\nВот как выглядела выигрышная комбинация:"
         rewards = calculate_ladder_rewards(game.stake)
         keyboard = await generate_ladder_keyboard(game, rewards, reveal=True)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
-    if game.chat_id in active_ladder_games:
-        del active_ladder_games[game.chat_id]
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
+    except TelegramBadRequest as e:
+        # Игнорируем ошибку, если сообщение не изменилось (например, при двойном нажатии)
+        if "message is not modified" not in str(e):
+             logging.error(f"Ошибка при редактировании сообщения в end_ladder_game: {e}")
+    finally:
+        if game.chat_id in active_ladder_games:
+            del active_ladder_games[game.chat_id]
 
 async def start_ladder_game(chat: Chat, user: User, bot: Bot, stake: int):
-    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    # Убрали message_to_reply, так как всегда отправляем новое сообщение
     await bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
     await asyncio.sleep(0.3)
-    
     await db.change_rating(user.id, -stake)
     correct_path = [random.randint(0, 1) for _ in range(LADDER_LEVELS)]
     if user.id == config.ADMIN_ID:
@@ -454,9 +486,7 @@ async def start_ladder_game(chat: Chat, user: User, bot: Bot, stake: int):
     game = LadderGameState(user.id, chat.id, 0, stake, correct_path)
     text = await generate_ladder_text(game)
     keyboard = await generate_ladder_keyboard(game, rewards)
-    
     game_message = await bot.send_message(chat_id=chat.id, text=text, reply_markup=keyboard, parse_mode='HTML')
-    
     game.message_id = game_message.message_id
     active_ladder_games[chat.id] = game
     game.task = asyncio.create_task(schedule_ladder_timeout(chat.id, user.id, game.message_id, stake, bot))
@@ -477,7 +507,6 @@ async def cmd_ladder(message: Message, bot: Bot):
     balance = await db.get_user_beer_rating(message.from_user.id)
     if balance < stake:
         return await message.reply(f"У вас недостаточно пива для этой ставки. Нужно {stake} 🍺, у вас {balance} 🍺.")
-    
     await start_ladder_game(message.chat, message.from_user, bot, stake)
 
 @router.callback_query(LadderCallbackData.filter())
@@ -485,47 +514,62 @@ async def on_ladder_callback(callback: CallbackQuery, callback_data: LadderCallb
     chat_id = callback.message.chat.id
     user = callback.from_user
     if chat_id not in active_ladder_games:
+        # Отвечаем на callback даже если игра не найдена
         return await callback.answer("Эта игра больше не активна.", show_alert=True)
+        
     game = active_ladder_games[chat_id]
     if user.id != game.player_id:
         return await callback.answer("Это не ваша игра!", show_alert=True)
+        
     action = callback_data.action
     if action == "play_again":
         await callback.answer()
-        await callback.message.delete()
+        # Пытаемся удалить старое сообщение игры перед стартом новой
+        with suppress(TelegramBadRequest):
+             await callback.message.delete()
         await start_ladder_game(callback.message.chat, user, bot, game.stake)
         return
+
     if game.is_finished:
-        return await callback.answer()
+        return await callback.answer() # Отвечаем на callback для завершенной игры
+
     if action == "cash_out":
         if game.current_win == 0 and game.current_level == 1:
             return await callback.answer("Сделайте хотя бы один ход, чтобы забрать ставку!", show_alert=True)
         await callback.answer()
         await end_ladder_game(callback, game, is_win=True)
         return
+
     if action == "play":
         level, choice = callback_data.level, callback_data.choice
         if level != game.current_level:
             return await callback.answer("Сейчас не ваш ход.", show_alert=True)
+            
+        # Отменяем таймер бездействия при первом ходе
         if game.current_level == 1 and game.task:
             game.task.cancel()
             game.task = None
+            
         await callback.answer()
         game.player_choices[level - 1] = choice
         rewards = calculate_ladder_rewards(game.stake)
+        
         if choice == game.correct_path[level - 1]:
             game.current_level += 1
             game.current_win = rewards[level - 1]
             if game.current_level > LADDER_LEVELS:
                 await end_ladder_game(callback, game, is_win=True)
             else:
-                keyboard = await generate_ladder_keyboard(game, rewards)
-                text = await generate_ladder_text(game)
-                await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
+                try:
+                    keyboard = await generate_ladder_keyboard(game, rewards)
+                    text = await generate_ladder_text(game)
+                    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
+                except TelegramBadRequest as e:
+                     if "message is not modified" not in str(e):
+                         logging.error(f"Ошибка при обновлении Лесенки: {e}")
         else:
             game.last_choice = choice
             await end_ladder_game(callback, game, is_win=False)
-
 
 # --- ЛОГИКА МИНИ-ИГРЫ "ПИВНАЯ РУЛЕТКА" ---
 def get_roulette_keyboard(game: GameState, user_id: int) -> InlineKeyboardMarkup:
