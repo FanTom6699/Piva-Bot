@@ -12,19 +12,16 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.exceptions import TelegramBadRequest
 
 from database import Database
+from settings import SettingsManager
 from .common import check_user_registered
 from utils import format_time_delta
-from settings import settings_manager
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 roulette_router = Router()
-db = Database(db_name='/data/bot_database.db')
-
 
 # --- CALLBACKDATA ---
 class RouletteCallbackData(CallbackData, prefix="roulette"):
     action: str
-
 
 # --- КЛАССЫ И КОНСТАНТЫ ---
 class GameState:
@@ -62,21 +59,21 @@ async def generate_lobby_text(game: GameState) -> str:
     )
 
 @roulette_router.message(Command("roulette"))
-async def cmd_roulette(message: Message, bot: Bot):
+async def cmd_roulette(message: Message, bot: Bot, db: Database, settings: SettingsManager):
     if message.chat.type == 'private': return await message.answer("Эта команда работает только в групповых чатах.")
     args = message.text.split()
     if len(args) != 3 or not args[1].isdigit() or not args[2].isdigit():
         return await message.reply(
             "ℹ️ <b>Как запустить 'Пивную рулетку':</b>\n"
             "Используйте команду: <code>/roulette &lt;ставка&gt; &lt;игроки&gt;</code>\n\n"
-            "• <code>&lt;ставка&gt;</code>: от 5 до 100 🍺\n"
+            f"• <code>&lt;ставка&gt;</code>: от {settings.roulette_min_bet} до {settings.roulette_max_bet} 🍺\n"
             "• <code>&lt;игроки&gt;</code>: от 2 до 6 человек\n\n"
             "Пример: <code>/roulette 10 4</code>", parse_mode='HTML'
         )
     chat_id = message.chat.id
     if chat_id in active_games: return await message.reply("В этом чате уже идет игра.")
     
-    roulette_cooldown = settings_manager.roulette_cooldown
+    roulette_cooldown = settings.roulette_cooldown
     if chat_id in chat_cooldowns:
         time_since = datetime.now() - chat_cooldowns[chat_id]
         if time_since.total_seconds() < roulette_cooldown:
@@ -85,15 +82,15 @@ async def cmd_roulette(message: Message, bot: Bot):
             
     stake, max_players = int(args[1]), int(args[2])
     
-    min_bet = settings_manager.roulette_min_bet
-    max_bet = settings_manager.roulette_max_bet
+    min_bet = settings.roulette_min_bet
+    max_bet = settings.roulette_max_bet
     
     if not (min_bet <= stake <= max_bet):
         return await message.reply(f"Ставка должна быть от {min_bet} до {max_bet} 🍺.")
     if not (2 <= max_players <= 6): return await message.reply("Количество игроков должно быть от 2 до 6.")
     
     creator = message.from_user
-    if not await check_user_registered(message, bot): return
+    if not await check_user_registered(message, bot, db): return
     creator_balance = await db.get_user_beer_rating(creator.id)
     if creator_balance < stake: return await message.reply(f"У вас недостаточно пива. Нужно {stake} 🍺, у вас {creator_balance} 🍺.")
     
@@ -103,10 +100,10 @@ async def cmd_roulette(message: Message, bot: Bot):
     active_games[chat_id] = game
     with suppress(TelegramBadRequest): await bot.pin_chat_message(chat_id=chat_id, message_id=lobby_message.message_id, disable_notification=True)
     await lobby_message.edit_text(await generate_lobby_text(game), reply_markup=get_roulette_keyboard(game, creator.id), parse_mode='HTML')
-    game.task = asyncio.create_task(schedule_game_start(chat_id, bot))
+    game.task = asyncio.create_task(schedule_game_start(chat_id, bot, db))
 
 @roulette_router.callback_query(RouletteCallbackData.filter())
-async def on_roulette_button_click(callback: CallbackQuery, callback_data: RouletteCallbackData, bot: Bot):
+async def on_roulette_button_click(callback: CallbackQuery, callback_data: RouletteCallbackData, bot: Bot, db: Database):
     chat_id = callback.message.chat.id
     user = callback.from_user
     if chat_id not in active_games: return await callback.answer("Эта игра уже неактивна.", show_alert=True)
@@ -117,7 +114,7 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
     if action == "join":
         if user.id in game.players: return await callback.answer("Вы уже в игре!", show_alert=True)
         if len(game.players) >= game.max_players: return await callback.answer("Лобби заполнено.", show_alert=True)
-        if not await check_user_registered(callback, bot): return
+        if not await check_user_registered(callback, bot, db): return
         balance = await db.get_user_beer_rating(user.id)
         if balance < game.stake: return await callback.answer(f"Недостаточно пива! Нужно {game.stake} 🍺, у вас {balance} 🍺.", show_alert=True)
         await db.change_rating(user.id, -game.stake)
@@ -125,7 +122,7 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
         await callback.answer("Вы присоединились к игре!")
         if len(game.players) == game.max_players:
             if game.task: game.task.cancel()
-            await start_roulette_game(chat_id, bot)
+            await start_roulette_game(chat_id, bot, db)
         else:
             await callback.message.edit_text(await generate_lobby_text(game), reply_markup=get_roulette_keyboard(game, user.id), parse_mode='HTML')
             
@@ -146,13 +143,13 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
         await callback.message.edit_text("Игра отменена создателем. Все ставки возвращены.")
         await callback.answer()
 
-async def schedule_game_start(chat_id: int, bot: Bot):
+async def schedule_game_start(chat_id: int, bot: Bot, db: Database):
     try:
         await asyncio.sleep(ROULETTE_LOBBY_TIMEOUT_SECONDS)
         if chat_id not in active_games: return
         game = active_games[chat_id]
         if len(game.players) >= 2:
-            await start_roulette_game(chat_id, bot)
+            await start_roulette_game(chat_id, bot, db)
         else:
             await db.change_rating(game.creator.id, game.stake)
             await bot.edit_message_text(text="Недостаточно игроков. Игра отменена.", chat_id=chat_id, message_id=game.lobby_message_id, reply_markup=None)
@@ -166,7 +163,7 @@ async def schedule_game_start(chat_id: int, bot: Bot):
         if chat_id in active_games:
             del active_games[chat_id]
 
-async def start_roulette_game(chat_id: int, bot: Bot):
+async def start_roulette_game(chat_id: int, bot: Bot, db: Database):
     if chat_id not in active_games: return
     game = active_games[chat_id]
     with suppress(TelegramBadRequest): await bot.unpin_chat_message(chat_id=chat_id, message_id=game.lobby_message_id)
