@@ -8,6 +8,7 @@ class Database:
 
     async def initialize(self):
         async with aiosqlite.connect(self.db_name) as db:
+            # Таблица пользователей (остается)
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -18,12 +19,26 @@ class Database:
                     last_beer_time TEXT
                 )
             ''')
+            # Таблица чатов (остается)
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS chats (
                     chat_id INTEGER PRIMARY KEY,
                     title TEXT
                 )
             ''')
+            
+            # --- НОВАЯ ТАБЛИЦА ДЛЯ ДЖЕКПОТА ---
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS game_data (
+                    key TEXT PRIMARY KEY,
+                    value INTEGER
+                )
+            ''')
+            
+            # --- ИНИЦИАЛИЗАЦИЯ ДЖЕКПОТА ---
+            # Устанавливаем джекпот в 0, если он еще не создан
+            await db.execute("INSERT OR IGNORE INTO game_data (key, value) VALUES ('jackpot', 0)")
+            
             await db.commit()
     
     # --- Функции для чатов ---
@@ -64,11 +79,10 @@ class Database:
     async def get_total_users_count(self):
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM users")
-            return (await cursor.fetchone())[0]
+            result = await cursor.fetchone()
+            return result[0] if result else 0
 
-    # --- НОВАЯ ФУНКЦИЯ ---
     async def get_user_by_username(self, username: str):
-        # Убираем @, если он есть
         username = username.lstrip('@')
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute('SELECT user_id FROM users WHERE username = ?', (username,))
@@ -110,4 +124,21 @@ class Database:
                 'UPDATE users SET beer_rating = beer_rating + ? WHERE user_id = ?',
                 (amount, user_id)
             )
+            await db.commit()
+
+    # --- НОВЫЕ ФУНКЦИИ ДЛЯ ДЖЕКПОТА ---
+    async def get_jackpot(self) -> int:
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT value FROM game_data WHERE key = 'jackpot'")
+            result = await cursor.fetchone()
+            return result[0] if result else 0
+
+    async def update_jackpot(self, amount: int):
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("UPDATE game_data SET value = value + ? WHERE key = 'jackpot'", (amount,))
+            await db.commit()
+
+    async def reset_jackpot(self):
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("UPDATE game_data SET value = 0 WHERE key = 'jackpot'")
             await db.commit()
