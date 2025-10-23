@@ -6,6 +6,7 @@ from .common import common_router
 from .user_commands import user_commands_router
 from .game_ladder import ladder_router
 from .game_roulette import roulette_router
+from .game_raid import raid_router # <-- ДОБАВЛЯЕМ НОВЫЙ РОУТЕР
 
 # Собираем все роутеры в один главный
 main_router = Router()
@@ -14,6 +15,6 @@ main_router.include_routers(
     common_router,
     user_commands_router,
     ladder_router,
-    roulette_router
-    # Новый роутер для новой игры будет добавляться сюда
+    roulette_router,
+    raid_router # <-- ДОБАВЛЯЕМ СЮДА
 )
