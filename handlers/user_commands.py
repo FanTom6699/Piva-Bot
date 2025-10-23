@@ -78,11 +78,25 @@ async def cmd_top(message: Message, bot: Bot):
         return
     top_users = await db.get_top_users()
     if not top_users: return await message.answer("В баре пока никого нет, чтобы составить топ.")
+
+    # --- ИЗМЕНЕНИЕ ЗДЕСЬ: Логика выравнивания ---
+    # 1. Находим максимальную ширину рейтинга для выравнивания
+    max_rating_width = 0
+    if top_users: # Убедимся, что список не пустой
+        max_rating_width = len(str(top_users[0][2])) # Берем рейтинг первого (самого большого)
+    
     top_text = "🏆 <b>Топ-10 пивных мастеров:</b> 🏆\n\n"
     medals = ["🥇", "🥈", "🥉"]
+    
     for i, (first_name, last_name, rating) in enumerate(top_users):
         full_name = first_name + (f" {last_name}" if last_name else "")
         place = i + 1
         medal = medals[i] if i < 3 else "🏅"
-        top_text += f"{medal} {place}. {full_name} — {rating} 🍺\n"
+        
+        # 2. Выравниваем рейтинг по правому краю
+        rating_str = str(rating).rjust(max_rating_width)
+        
+        top_text += f"{medal} {place}. {full_name} — <code>{rating_str}</code> 🍺\n"
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+            
     await message.answer(top_text, parse_mode='HTML')
