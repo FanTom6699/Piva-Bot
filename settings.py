@@ -12,6 +12,18 @@ class SettingsManager:
         self.roulette_max_bet = 100
         self.ladder_min_bet = 5
         self.ladder_max_bet = 100
+        
+        # --- НОВЫЕ НАСТРОЙКИ РЕЙДА ---
+        self.raid_boss_health = 100000
+        self.raid_reward_pool = 5000
+        self.raid_duration_hours = 24
+        self.raid_hit_cooldown_minutes = 30
+        self.raid_strong_hit_cost = 100
+        self.raid_strong_hit_damage_min = 500
+        self.raid_strong_hit_damage_max = 1000
+        self.raid_normal_hit_damage_min = 10
+        self.raid_normal_hit_damage_max = 50
+        self.raid_reminder_hours = 6 # Как часто слать напоминание
 
     async def load_settings(self, db: Database):
         logging.info("Загрузка настроек из БД...")
@@ -35,7 +47,6 @@ class SettingsManager:
             logging.error(f"Ошибка при перезагрузке настройки '{key}': {e}")
             
     def get_all_settings_text(self) -> str:
-        # Собираем все текущие настройки в красивый текст
         return (
             f"<b>⚙️ Текущие настройки бота:</b>\n\n"
             f"<b>Игра: /beer</b>\n"
@@ -49,6 +60,16 @@ class SettingsManager:
             f"  • Мин. ставка: <code>{self.ladder_min_bet}</code> 🍺\n"
             f"  • Макс. ставка: <code>{self.ladder_max_bet}</code> 🍺"
         )
-
-# Создаем единый экземпляр менеджера
-settings_manager = SettingsManager()
+    
+    def get_raid_settings_text(self) -> str:
+        return (
+            f"<b>👹 Настройки Рейд-Босса:</b>\n\n"
+            f"  • Здоровье: <code>{self.raid_boss_health}</code> ❤️\n"
+            f"  • Награда: <code>{self.raid_reward_pool}</code> 💰\n"
+            f"  • Длительность: <code>{self.raid_duration_hours}</code> ч\n"
+            f"  • Кулдаун атаки: <code>{self.raid_hit_cooldown_minutes}</code> мин\n"
+            f"  • Цена сильного удара: <code>{self.raid_strong_hit_cost}</code> 🍺\n"
+            f"  • Урон (сильный): <code>{self.raid_strong_hit_damage_min}-{self.raid_strong_hit_damage_max}</code>\n"
+            f"  • Урон (обычный): <code>{self.raid_normal_hit_damage_min}-{self.raid_normal_hit_damage_max}</code>\n"
+            f"  • Напоминание: <code>каждые {self.raid_reminder_hours}</code> ч"
+        )
