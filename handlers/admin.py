@@ -18,7 +18,7 @@ from .game_raid import start_raid_event # Импортируем функцию 
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 admin_router = Router()
-# db = Database(...) # <-- УБРАЛИ. Будем получать из main.py
+# db = Database(...) # Убрали. Будем получать из main.py
 
 # --- FSM СОСТОЯНИЯ ---
 class AdminStates(StatesGroup):
@@ -109,7 +109,8 @@ async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCal
         await callback.message.edit_text("Добро пожаловать в админ-панель!", reply_markup=await get_main_admin_keyboard())
         return
 
-    if action != "settings" and action != "events":
+    # Убираем кнопки только если это не меню настроек или ивентов
+    if action not in ["settings", "events"]:
         await callback.message.edit_reply_markup(reply_markup=None)
     
     if action == "stats":
@@ -147,7 +148,10 @@ async def cq_admin_select_setting(callback: CallbackQuery, callback_data: AdminS
         f"Введите новое значение для <code>{setting_key}</code>.\n"
         f"Текущее значение: <code>{current_value}</code>\n\n"
         f"Для отмены введите /cancel.",
-        parse_mode='HTML'
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад к настройкам", callback_data=AdminCallbackData(action="settings").pack())]
+        ])
     )
 
 @admin_router.message(AdminStates.waiting_for_setting_value, IsAdmin())
@@ -179,7 +183,7 @@ async def cq_raid_menu(callback: CallbackQuery, settings: SettingsManager):
     text = settings.get_raid_settings_text()
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 ЗАПУСТИТЬ ИВЕНТ", callback_data=AdminRaidCallbackData(action="select_chat", page=0).pack())],
-        [InlineKeyboardButton(text="✏️ Изменить Настройки (см. /settings)", callback_data="do_nothing")],
+        [InlineKeyboardButton(text="✏️ Изменить Настройки (см. /set)", callback_data="do_nothing")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=AdminCallbackData(action="events").pack())]
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
@@ -313,15 +317,23 @@ async def admin_leave_chat(message: Message, bot: Bot):
     else:
         await message.reply("Эту команду можно использовать только в группах.")
 
-@admin_Grouter.message(Command("settings"), IsAdmin())
+@admin_router.message(Command("settings"), IsAdmin())
 async def cmd_show_settings(message: Message, settings: SettingsManager):
-    await show_settings_menu(message, settings) # Передаем settings
+    await show_settings_menu(message, settings)
 
 @admin_router.message(Command("set"), IsAdmin())
 async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: SettingsManager):
     args = message.text.split()
     if len(args) != 3:
-        await message.reply("Неверный формат. Используйте: <code>/set &lt;ключ&gt; &lt;значение&gt;</code>", parse_mode='HTML')
+        await message.reply("Неверный формат. Используйте: <code>/set &lt;ключ&gt; &lt;значение&gt;</code>\n"
+                            "Пример: <code>/set beer_cooldown 3600</code>\n\n"
+                            "Доступные ключи:\n"
+                            "<code>beer_cooldown, jackpot_chance, roulette_cooldown, "
+                            "roulette_min_bet, roulette_max_bet, ladder_min_bet, ladder_max_bet, "
+                            "raid_boss_health, raid_reward_pool, raid_duration_hours, raid_hit_cooldown_minutes, "
+                            "raid_strong_hit_cost, raid_strong_hit_damage_min, raid_strong_hit_damage_max, "
+                            "raid_normal_hit_damage_min, raid_normal_hit_damage_max, raid_reminder_hours</code>",
+                            parse_mode='HTML')
         return
 
     key, value = args[1], args[2]
@@ -339,9 +351,10 @@ async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: Se
     try:
         await db.update_setting(key, int_value)
         await settings.reload_setting(db, key)
-        await message.answer(f"✅ Настройка '<code>{key}</code>' обновлена на <code>{int_value}</code>.", parse_mode='HTML')
+        await message.answer(f"✅ Настройка '<code>{key}</code>' успешно обновлена на <code>{int_value}</code>.", parse_mode='HTML')
         
-        await show_settings_menu(message, settings)
+        text, keyboard = await get_settings_menu(settings)
+        await message.answer(text, reply_markup=keyboard, parse_mode='HTML')
         
     except Exception as e:
         await message.answer(f"Произошла ошибка при обновлении настройки: {e}")
