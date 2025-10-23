@@ -12,7 +12,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 import config
 from database import Database
-from settings import settings_manager # <-- ИМПОРТ МЕНЕДЖЕРА
+from settings import settings_manager
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 admin_router = Router()
@@ -24,6 +24,7 @@ class AdminStates(StatesGroup):
     broadcast_message = State()
     give_beer_user = State()
     give_beer_amount = State()
+    waiting_for_setting_value = State() # Новое состояние для ожидания значения
 
 
 # --- ФИЛЬТРЫ ---
@@ -36,6 +37,35 @@ class IsAdmin(Filter):
 class AdminCallbackData(CallbackData, prefix="admin"):
     action: str
 
+# Новая фабрика для кнопок настроек
+class AdminSettingsCallbackData(CallbackData, prefix="admin_set"):
+    setting_key: str
+
+
+# --- Вспомогательная функция для меню настроек ---
+async def get_settings_menu():
+    """Генерирует текст и клавиатуру для меню настроек."""
+    text = (
+        f"{settings_manager.get_all_settings_text()}\n\n"
+        f"<b>Какую настройку вы хотите изменить?</b>"
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Кулдаун /beer", callback_data=AdminSettingsCallbackData(setting_key="beer_cooldown").pack())],
+        [InlineKeyboardButton(text="Шанс Джекпота (1 к X)", callback_data=AdminSettingsCallbackData(setting_key="jackpot_chance").pack())],
+        [InlineKeyboardButton(text="Кулдаун Рулетки", callback_data=AdminSettingsCallbackData(setting_key="roulette_cooldown").pack())],
+        [
+            InlineKeyboardButton(text="Мин. Рулетка", callback_data=AdminSettingsCallbackData(setting_key="roulette_min_bet").pack()),
+            InlineKeyboardButton(text="Макс. Рулетка", callback_data=AdminSettingsCallbackData(setting_key="roulette_max_bet").pack())
+        ],
+        [
+            InlineKeyboardButton(text="Мин. Лесенка", callback_data=AdminSettingsCallbackData(setting_key="ladder_min_bet").pack()),
+            InlineKeyboardButton(text="Макс. Лесенка", callback_data=AdminSettingsCallbackData(setting_key="ladder_max_bet").pack())
+        ],
+        [InlineKeyboardButton(text="⬅️ Назад в админ-меню", callback_data=AdminCallbackData(action="main_admin_menu").pack())]
+    ])
+    return text, keyboard
+
 # --- АДМИН-ПАНЕЛЬ (admin_router) ---
 @admin_router.message(Command("cancel"), IsAdmin(), StateFilter("*"))
 async def cancel_handler(message: Message, state: FSMContext):
@@ -45,43 +75,29 @@ async def cancel_handler(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Действие отменено.")
 
-@admin_router.message(Command("admin"), IsAdmin())
-async def cmd_admin_panel(message: Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+async def get_main_admin_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🍺 Выдать пиво", callback_data=AdminCallbackData(action="give_beer").pack())],
         [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data=AdminCallbackData(action="broadcast").pack())],
         [InlineKeyboardButton(text="📊 Статистика", callback_data=AdminCallbackData(action="stats").pack())],
         [InlineKeyboardButton(text="⚙️ Настройки бота", callback_data=AdminCallbackData(action="settings").pack())]
     ])
-    await message.answer("Добро пожаловать в админ-панель!", reply_markup=keyboard)
 
-# --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
-async def show_settings_menu(message_or_callback: Message | CallbackQuery):
-    """Отправляет актуальное меню настроек с инструкцией."""
-    text = (
-        f"{settings_manager.get_all_settings_text()}\n\n"
-        f"--- --- ---\n"
-        f"<b>ℹ️ Как изменить настройку:</b>\n"
-        f"Отправьте команду <code>/set &lt;ключ&gt; &lt;значение&gt;</code>\n"
-        f"<b>Пример:</b> <code>/set beer_cooldown 3600</code>"
-    )
-    
-    if isinstance(message_or_callback, Message):
-        await message_or_callback.answer(text, parse_mode='HTML')
-    else: # CallbackQuery
-        await message_or_callback.message.answer(text, parse_mode='HTML')
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+@admin_router.message(Command("admin"), IsAdmin())
+async def cmd_admin_panel(message: Message):
+    await message.answer("Добро пожаловать в админ-панель!", reply_markup=await get_main_admin_keyboard())
 
-
+# Обработчик кнопок главного меню админки
 @admin_router.callback_query(AdminCallbackData.filter(), IsAdmin())
 async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCallbackData, state: FSMContext):
     action = callback_data.action
     await callback.answer()
-    
-    # Редактируем сообщение, только если это не кнопка "Настройки"
-    # (чтобы меню настроек не исчезло)
-    if action != "settings":
-        await callback.message.edit_reply_markup(reply_markup=None)
+
+    if action == "main_admin_menu":
+        await callback.message.edit_text("Добро пожаловать в админ-панель!", reply_markup=await get_main_admin_keyboard())
+        return
+
+    await callback.message.edit_reply_markup(reply_markup=None)
     
     if action == "stats":
         total_users = await db.get_total_users_count()
@@ -99,7 +115,53 @@ async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCal
         await state.set_state(AdminStates.give_beer_user)
         await callback.message.answer("Кому выдать пиво? Отправьте ID, @username или перешлите сообщение. Для отмены введите /cancel")
     elif action == "settings":
-        await show_settings_menu(callback) # Вызываем новую функцию
+        text, keyboard = await get_settings_menu()
+        await callback.message.answer(text, reply_markup=keyboard, parse_mode='HTML')
+
+
+# --- Новые обработчики для меню настроек ---
+
+@admin_router.callback_query(AdminSettingsCallbackData.filter(), IsAdmin())
+async def cq_admin_select_setting(callback: CallbackQuery, callback_data: AdminSettingsCallbackData, state: FSMContext):
+    await callback.answer()
+    setting_key = callback_data.setting_key
+    
+    await state.update_data(setting_key=setting_key)
+    await state.set_state(AdminStates.waiting_for_setting_value)
+    
+    current_value = getattr(settings_manager, setting_key)
+    await callback.message.answer(
+        f"Введите новое значение для <code>{setting_key}</code>.\n"
+        f"Текущее значение: <code>{current_value}</code>\n\n"
+        f"Для отмены введите /cancel.",
+        parse_mode='HTML'
+    )
+
+@admin_router.message(AdminStates.waiting_for_setting_value, IsAdmin())
+async def process_setting_value(message: Message, state: FSMContext):
+    if not message.text or not message.text.isdigit():
+        await message.reply("Ошибка. Введите целое число. Или /cancel для отмены.")
+        return
+
+    new_value = int(message.text)
+    data = await state.get_data()
+    setting_key = data.get('setting_key')
+    
+    await state.clear()
+    
+    try:
+        await db.update_setting(setting_key, new_value)
+        await settings_manager.reload_setting(db, setting_key)
+        await message.answer(f"✅ Настройка '<code>{setting_key}</code>' обновлена на <code>{new_value}</code>.", parse_mode='HTML')
+        
+        # Показываем обновленное меню
+        text, keyboard = await get_settings_menu()
+        await message.answer(text, reply_markup=keyboard, parse_mode='HTML')
+        
+    except Exception as e:
+        await message.answer(f"Ошибка при обновлении: {e}")
+
+# --- (Остальные админские функции) ---
 
 @admin_router.message(AdminStates.broadcast_message, IsAdmin())
 async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot):
@@ -180,42 +242,3 @@ async def admin_leave_chat(message: Message, bot: Bot):
         await bot.leave_chat(chat_id=message.chat.id)
     else:
         await message.reply("Эту команду можно использовать только в группах.")
-
-# --- НОВЫЕ КОМАНДЫ ДЛЯ НАСТРОЕК ---
-@admin_router.message(Command("settings"), IsAdmin())
-async def cmd_show_settings(message: Message):
-    await show_settings_menu(message) # Вызываем новую функцию
-
-@admin_router.message(Command("set"), IsAdmin())
-async def cmd_set_setting(message: Message, bot: Bot):
-    args = message.text.split()
-    if len(args) != 3:
-        await message.reply("Неверный формат. Используйте: <code>/set &lt;ключ&gt; &lt;значение&gt;</code>\n"
-                            "Пример: <code>/set beer_cooldown 3600</code>\n\n"
-                            "Доступные ключи:\n"
-                            "<code>beer_cooldown, jackpot_chance, roulette_cooldown, "
-                            "roulette_min_bet, roulette_max_bet, ladder_min_bet, ladder_max_bet</code>",
-                            parse_mode='HTML')
-        return
-
-    key, value = args[1], args[2]
-
-    if not hasattr(settings_manager, key):
-        await message.reply(f"Ошибка: Неизвестный ключ настройки '<code>{key}</code>'.")
-        return
-        
-    if not value.isdigit():
-        await message.reply("Ошибка: Значение должно быть целым числом.")
-        return
-        
-    int_value = int(value)
-    
-    try:
-        await db.update_setting(key, int_value)
-        await settings_manager.reload_setting(db, key)
-        await message.answer(f"✅ Настройка '<code>{key}</code>' успешно обновлена на <code>{int_value}</code>.", parse_mode='HTML')
-        
-        await show_settings_menu(message)
-        
-    except Exception as e:
-        await message.answer(f"Произошла ошибка при обновлении настройки: {e}")
