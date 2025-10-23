@@ -1,6 +1,7 @@
 # database.py
 import aiosqlite
 from datetime import datetime
+from typing import Dict, Any
 
 class Database:
     def __init__(self, db_name='bot_database.db'):
@@ -8,36 +9,32 @@ class Database:
 
     async def initialize(self):
         async with aiosqlite.connect(self.db_name) as db:
-            # Таблица пользователей (остается)
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
-                    first_name TEXT,
-                    last_name TEXT,
-                    username TEXT,
-                    beer_rating INTEGER DEFAULT 0,
-                    last_beer_time TEXT
+                    user_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT,
+                    username TEXT, beer_rating INTEGER DEFAULT 0, last_beer_time TEXT
                 )
             ''')
-            # Таблица чатов (остается)
             await db.execute('''
-                CREATE TABLE IF NOT EXISTS chats (
-                    chat_id INTEGER PRIMARY KEY,
-                    title TEXT
-                )
+                CREATE TABLE IF NOT EXISTS chats (chat_id INTEGER PRIMARY KEY, title TEXT)
+            ''')
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS game_data (key TEXT PRIMARY KEY, value INTEGER)
             ''')
             
-            # --- НОВАЯ ТАБЛИЦА ДЛЯ ДЖЕКПОТА ---
-            await db.execute('''
-                CREATE TABLE IF NOT EXISTS game_data (
-                    key TEXT PRIMARY KEY,
-                    value INTEGER
-                )
-            ''')
-            
-            # --- ИНИЦИАЛИЗАЦИЯ ДЖЕКПОТА ---
-            # Устанавливаем джекпот в 0, если он еще не создан
-            await db.execute("INSERT OR IGNORE INTO game_data (key, value) VALUES ('jackpot', 0)")
+            # --- ИНИЦИАЛИЗАЦИЯ НАСТРОЕК ---
+            # (INSERT OR IGNORE - добавит, только если ключа еще нет)
+            default_settings = [
+                ('jackpot', 0),
+                ('beer_cooldown', 7200),
+                ('jackpot_chance', 150),
+                ('roulette_cooldown', 600),
+                ('roulette_min_bet', 5),
+                ('roulette_max_bet', 100),
+                ('ladder_min_bet', 5),
+                ('ladder_max_bet', 100)
+            ]
+            await db.executemany("INSERT OR IGNORE INTO game_data (key, value) VALUES (?, ?)", default_settings)
             
             await db.commit()
     
@@ -126,12 +123,9 @@ class Database:
             )
             await db.commit()
 
-    # --- НОВЫЕ ФУНКЦИИ ДЛЯ ДЖЕКПОТА ---
+    # --- ФУНКЦИИ ДЖЕКПОТА И НАСТРОЕК ---
     async def get_jackpot(self) -> int:
-        async with aiosqlite.connect(self.db_name) as db:
-            cursor = await db.execute("SELECT value FROM game_data WHERE key = 'jackpot'")
-            result = await cursor.fetchone()
-            return result[0] if result else 0
+        return await self.get_setting('jackpot')
 
     async def update_jackpot(self, amount: int):
         async with aiosqlite.connect(self.db_name) as db:
@@ -139,6 +133,20 @@ class Database:
             await db.commit()
 
     async def reset_jackpot(self):
+        await self.update_setting('jackpot', 0)
+
+    async def get_setting(self, key: str) -> int:
         async with aiosqlite.connect(self.db_name) as db:
-            await db.execute("UPDATE game_data SET value = 0 WHERE key = 'jackpot'")
+            cursor = await db.execute("SELECT value FROM game_data WHERE key = ?", (key,))
+            result = await cursor.fetchone()
+            return result[0] if result else 0
+
+    async def get_all_settings(self) -> Dict[str, int]:
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT key, value FROM game_data")
+            return {row[0]: row[1] for row in await cursor.fetchall()}
+
+    async def update_setting(self, key: str, value: int):
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("UPDATE game_data SET value = ? WHERE key = ?", (value, key))
             await db.commit()
