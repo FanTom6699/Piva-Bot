@@ -7,14 +7,12 @@ from aiogram.types import Message
 from aiogram.filters import Command
 
 from database import Database
+from settings import SettingsManager
 from .common import check_user_registered
 from utils import format_time_delta
-from settings import settings_manager # <-- ИМПОРТ МЕНЕДЖЕРА
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 user_commands_router = Router()
-db = Database(db_name='/data/bot_database.db')
-
 user_spam_tracker = {}
 
 # --- ФРАЗЫ ДЛЯ КОМАНДЫ /beer ---
@@ -35,20 +33,19 @@ BEER_LOSE_PHRASES_ZERO = [
 
 # --- КОМАНДЫ ---
 @user_commands_router.message(Command("beer"))
-async def cmd_beer(message: Message, bot: Bot):
+async def cmd_beer(message: Message, bot: Bot, db: Database, settings: SettingsManager):
     user_id = message.from_user.id
     now = datetime.now()
     if user_id in user_spam_tracker:
         if (now - user_spam_tracker[user_id]).total_seconds() < 5:
             return
     user_spam_tracker[user_id] = now
-    if message.chat.type != 'private' and not await check_user_registered(message, bot):
+    if message.chat.type != 'private' and not await check_user_registered(message, bot, db):
         return
     
     last_beer_time = await db.get_last_beer_time(user_id)
+    beer_cooldown = settings.beer_cooldown
     
-    # --- ИСПОЛЬЗУЕМ НАСТРОЙКИ ---
-    beer_cooldown = settings_manager.beer_cooldown
     if last_beer_time:
         time_since = datetime.now() - last_beer_time
         if time_since.total_seconds() < beer_cooldown:
@@ -90,13 +87,12 @@ async def cmd_beer(message: Message, bot: Bot):
             phrase = random.choice(BEER_LOSE_PHRASES_RATING).format(rating_loss=rating_loss)
         
         if actual_loss > 0:
-            await db.update_jackpot(actual_loss) # Молча пополняем джекпот
+            await db.update_jackpot(actual_loss)
             
     await db.update_beer_data(user_id, new_rating)
     await message.answer(phrase, parse_mode='HTML')
 
-    # --- ИСПОЛЬЗУЕМ НАСТРОЙКИ ---
-    jackpot_chance = settings_manager.jackpot_chance
+    jackpot_chance = settings.jackpot_chance
     if random.randint(1, jackpot_chance) == 1:
         current_jackpot = await db.get_jackpot()
         if current_jackpot > 0:
@@ -112,8 +108,8 @@ async def cmd_beer(message: Message, bot: Bot):
             )
 
 @user_commands_router.message(Command("top"))
-async def cmd_top(message: Message, bot: Bot):
-    if message.chat.type != 'private' and not await check_user_registered(message, bot):
+async def cmd_top(message: Message, bot: Bot, db: Database):
+    if message.chat.type != 'private' and not await check_user_registered(message, bot, db):
         return
     top_users = await db.get_top_users()
     if not top_users: return await message.answer("В баре пока никого нет, чтобы составить топ.")
