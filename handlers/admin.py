@@ -18,16 +18,19 @@ from settings import settings_manager # <-- ИМПОРТ МЕНЕДЖЕРА
 admin_router = Router()
 db = Database(db_name='/data/bot_database.db')
 
+
 # --- FSM СОСТОЯНИЯ ---
 class AdminStates(StatesGroup):
     broadcast_message = State()
     give_beer_user = State()
     give_beer_amount = State()
 
+
 # --- ФИЛЬТРЫ ---
 class IsAdmin(Filter):
     async def __call__(self, message: Message | CallbackQuery) -> bool:
         return message.from_user.id == config.ADMIN_ID
+
 
 # --- CALLBACKDATA ФАБРИКИ ---
 class AdminCallbackData(CallbackData, prefix="admin"):
@@ -52,11 +55,33 @@ async def cmd_admin_panel(message: Message):
     ])
     await message.answer("Добро пожаловать в админ-панель!", reply_markup=keyboard)
 
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+async def show_settings_menu(message_or_callback: Message | CallbackQuery):
+    """Отправляет актуальное меню настроек с инструкцией."""
+    text = (
+        f"{settings_manager.get_all_settings_text()}\n\n"
+        f"--- --- ---\n"
+        f"<b>ℹ️ Как изменить настройку:</b>\n"
+        f"Отправьте команду <code>/set &lt;ключ&gt; &lt;значение&gt;</code>\n"
+        f"<b>Пример:</b> <code>/set beer_cooldown 3600</code>"
+    )
+    
+    if isinstance(message_or_callback, Message):
+        await message_or_callback.answer(text, parse_mode='HTML')
+    else: # CallbackQuery
+        await message_or_callback.message.answer(text, parse_mode='HTML')
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+
 @admin_router.callback_query(AdminCallbackData.filter(), IsAdmin())
 async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCallbackData, state: FSMContext):
     action = callback_data.action
     await callback.answer()
-    await callback.message.edit_reply_markup(reply_markup=None)
+    
+    # Редактируем сообщение, только если это не кнопка "Настройки"
+    # (чтобы меню настроек не исчезло)
+    if action != "settings":
+        await callback.message.edit_reply_markup(reply_markup=None)
     
     if action == "stats":
         total_users = await db.get_total_users_count()
@@ -74,10 +99,7 @@ async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCal
         await state.set_state(AdminStates.give_beer_user)
         await callback.message.answer("Кому выдать пиво? Отправьте ID, @username или перешлите сообщение. Для отмены введите /cancel")
     elif action == "settings":
-        await callback.message.answer(
-            settings_manager.get_all_settings_text(),
-            parse_mode='HTML'
-        )
+        await show_settings_menu(callback) # Вызываем новую функцию
 
 @admin_router.message(AdminStates.broadcast_message, IsAdmin())
 async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot):
@@ -87,7 +109,6 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
     chat_ids = await db.get_all_chat_ids()
     success_users, failed_users = 0, 0
     
-    # Рассылка по пользователям (без закрепления)
     for user_id in user_ids:
         with suppress(TelegramBadRequest):
             try:
@@ -97,20 +118,15 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
                 failed_users += 1
             await asyncio.sleep(0.05)
             
-    # Рассылка по чатам (С ЗАКРЕПЛЕНИЕМ)
     success_chats, failed_chats = 0, 0
     for chat_id in chat_ids:
         with suppress(TelegramBadRequest):
             try:
                 sent_message = await bot.copy_message(chat_id=chat_id, from_chat_id=message.chat.id, message_id=message.message_id)
-                
-                # --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
                 try:
                     await bot.pin_chat_message(chat_id=chat_id, message_id=sent_message.message_id)
                 except Exception as e:
                     logging.warning(f"Не удалось закрепить сообщение в чате {chat_id}: {e}")
-                # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-                    
                 success_chats += 1
             except Exception:
                 failed_chats += 1
@@ -123,7 +139,39 @@ async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot
         parse_mode='HTML'
     )
 
-# ... (код выдачи пива process_give_beer_user и process_give_beer_amount без изменений) ...
+@admin_router.message(AdminStates.give_beer_user, IsAdmin())
+async def process_give_beer_user(message: Message, state: FSMContext):
+    target_id = None
+    if message.forward_from:
+        target_id = message.forward_from.id
+    elif message.text and message.text.startswith('@'):
+        target_id = await db.get_user_by_username(message.text)
+    elif message.text and message.text.isdigit():
+        target_id = int(message.text)
+    if not target_id or not await db.user_exists(target_id):
+        await message.reply("Пользователь не найден. Попробуйте снова или /cancel.")
+        return
+    await state.update_data(target_id=target_id)
+    await state.set_state(AdminStates.give_beer_amount)
+    await message.answer("Отлично. Теперь введите сумму (например, `100` или `-50`).")
+
+@admin_router.message(AdminStates.give_beer_amount, IsAdmin())
+async def process_give_beer_amount(message: Message, state: FSMContext, bot: Bot):
+    if not message.text or not message.text.lstrip('-').isdigit():
+        await message.reply("Это не число. Введите сумму или /cancel.")
+        return
+    amount = int(message.text)
+    user_data = await state.get_data()
+    target_id = user_data.get('target_id')
+    await state.clear()
+    await db.change_rating(target_id, amount)
+    new_balance = await db.get_user_beer_rating(target_id)
+    await message.answer(
+        f"Баланс изменен!\nID: <code>{target_id}</code>\nИзменение: {amount:+} 🍺\nНовый баланс: {new_balance} 🍺",
+        parse_mode='HTML'
+    )
+    with suppress(TelegramBadRequest):
+        await bot.send_message(chat_id=target_id, text=f"⚙️ Администратор изменил ваш баланс на {amount:+} 🍺.")
 
 @admin_router.message(F.text.lower() == "бот выйди", IsAdmin())
 async def admin_leave_chat(message: Message, bot: Bot):
@@ -136,10 +184,7 @@ async def admin_leave_chat(message: Message, bot: Bot):
 # --- НОВЫЕ КОМАНДЫ ДЛЯ НАСТРОЕК ---
 @admin_router.message(Command("settings"), IsAdmin())
 async def cmd_show_settings(message: Message):
-    await message.answer(
-        settings_manager.get_all_settings_text(),
-        parse_mode='HTML'
-    )
+    await show_settings_menu(message) # Вызываем новую функцию
 
 @admin_router.message(Command("set"), IsAdmin())
 async def cmd_set_setting(message: Message, bot: Bot):
@@ -170,8 +215,7 @@ async def cmd_set_setting(message: Message, bot: Bot):
         await settings_manager.reload_setting(db, key)
         await message.answer(f"✅ Настройка '<code>{key}</code>' успешно обновлена на <code>{int_value}</code>.", parse_mode='HTML')
         
-        # Показываем обновленные настройки
-        await cmd_show_settings(message)
+        await show_settings_menu(message)
         
     except Exception as e:
         await message.answer(f"Произошла ошибка при обновлении настройки: {e}")
