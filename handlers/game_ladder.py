@@ -15,13 +15,11 @@ from aiogram.exceptions import TelegramBadRequest
 
 import config
 from database import Database
+from settings import SettingsManager
 from .common import check_user_registered
-from settings import settings_manager
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 ladder_router = Router()
-db = Database(db_name='/data/bot_database.db')
-
 
 # --- CALLBACKDATA ---
 class LadderCallbackData(CallbackData, prefix="ladder"):
@@ -29,7 +27,6 @@ class LadderCallbackData(CallbackData, prefix="ladder"):
     level: int = 0
     choice: int = 0
     stake: int = 0
-
 
 # --- КЛАССЫ И КОНСТАНТЫ ---
 class LadderGameState:
@@ -60,21 +57,19 @@ def calculate_ladder_rewards(stake: int) -> List[float]:
     return rewards
 
 # --- ФУНКЦИИ ИГРЫ ---
-async def schedule_ladder_timeout(chat_id: int, player_id: int, message_id: int, stake: int, bot: Bot):
+async def schedule_ladder_timeout(chat_id: int, player_id: int, message_id: int, stake: int, bot: Bot, db: Database):
     try:
         await asyncio.sleep(LADDER_INACTIVITY_TIMEOUT_SECONDS)
         if chat_id in active_ladder_games:
             game = active_ladder_games[chat_id]
             if game.player_id == player_id and game.current_level == 1 and not game.is_finished:
                 await db.change_rating(player_id, stake)
-                
                 await bot.send_message(
                     chat_id=chat_id,
                     text=f"⏰ Игра в 'Лесенку' отменена из-за бездействия. Ваша ставка {stake} 🍺 возвращена."
                 )
                 with suppress(TelegramBadRequest):
                     await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                
                 del active_ladder_games[chat_id]
     except asyncio.CancelledError:
         pass
@@ -99,10 +94,10 @@ async def generate_ladder_keyboard(game: LadderGameState, rewards: List[float], 
                     else:
                         btn_text = " "
                 elif i == game.current_level:
-                    if not is_win: # Если это проигрыш
+                    if not is_win:
                         btn_text = f"🍺 {rewards[level_idx]}" if is_correct_path else "❌"
-                    else: # Если это выигрыш (забрал)
-                         btn_text = " " # На уровне выигрыша ничего не показываем
+                    else:
+                         btn_text = " "
                 else:
                     btn_text = f"🍺 {rewards[level_idx]}" if is_correct_path else "💨"
             else:
@@ -131,7 +126,7 @@ async def generate_ladder_keyboard(game: LadderGameState, rewards: List[float], 
 async def generate_ladder_text(game: LadderGameState) -> str:
     return (f"🪜 <b>Пивная Лесенка</b> 🪜\n\n" f"Ставка: <b>{game.stake} 🍺</b> | Текущий выигрыш: <b>{game.current_win} 🍺</b>")
 
-async def end_ladder_game(bot: Bot, chat_id: int, user: User, game: LadderGameState, is_win: bool):
+async def end_ladder_game(bot: Bot, chat_id: int, user: User, game: LadderGameState, is_win: bool, db: Database):
     game.is_finished = True
     if game.task:
         game.task.cancel()
@@ -168,38 +163,31 @@ async def generate_final_board_text(game: LadderGameState, rewards: List[float],
     for i in range(LADDER_LEVELS, 0, -1):
         level_idx = i - 1
         row = ["", ""]
-        
         is_correct_path_0 = (0 == game.correct_path[level_idx])
         is_correct_path_1 = (1 == game.correct_path[level_idx])
-
-        if i < game.current_level: # Пройденные уровни
+        if i < game.current_level:
             if 0 == game.player_choices.get(level_idx): row[0], row[1] = "✅", "⬛"
             else: row[0], row[1] = "⬛", "✅"
-                
-        elif i == game.current_level and not is_win: # Уровень проигрыша
+        elif i == game.current_level and not is_win:
             if 0 == game.last_choice: row[0], row[1] = "❌", "🍺"
             else: row[0], row[1] = "🍺", "❌"
-                
-        elif i == game.current_level and is_win: # Уровень, на котором забрали (должен быть предыдущий)
-            if 0 == game.player_choices.get(level_idx): row[0], row[1] = "✅", "⬛"
+        elif i == game.current_level and is_win:
+            if 0 == game.player_choices.get(level_idx - 1): row[0], row[1] = "✅", "⬛"
             else: row[0], row[1] = "⬛", "✅"
-        
-        elif i >= game.current_level and is_win: # Показываем путь выше для победителя
-            if i in game.player_choices: # Этого не должно быть, но на всякий случай
+        elif i >= game.current_level and is_win:
+            if i in game.player_choices:
                  if 0 == game.player_choices.get(level_idx): row[0], row[1] = "✅", "⬛"
                  else: row[0], row[1] = "⬛", "✅"
-            else: # Уровни, до которых не дошел
+            else:
                  row[0] = " "
                  row[1] = " "
-
-        else: # Будущие уровни при проигрыше
+        else:
             row[0] = "🍺" if is_correct_path_0 else "💨"
             row[1] = "🍺" if is_correct_path_1 else "💨"
-            
         board_lines.append(f"<code>{rewards[level_idx]:<7} | {row[0]:<2} | {row[1]:<2}</code>")
     return "\n".join(board_lines)
 
-async def start_ladder_game(chat: Chat, user: User, bot: Bot, stake: int):
+async def start_ladder_game(chat: Chat, user: User, bot: Bot, stake: int, db: Database):
     await bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
     await asyncio.sleep(0.3)
     await db.change_rating(user.id, -stake)
@@ -215,10 +203,10 @@ async def start_ladder_game(chat: Chat, user: User, bot: Bot, stake: int):
     game_message = await bot.send_message(chat_id=chat.id, text=text, reply_markup=keyboard, parse_mode='HTML')
     game.message_id = game_message.message_id
     active_ladder_games[chat.id] = game
-    game.task = asyncio.create_task(schedule_ladder_timeout(chat.id, user.id, game.message_id, stake, bot))
+    game.task = asyncio.create_task(schedule_ladder_timeout(chat.id, user.id, game.message_id, stake, bot, db))
 
 @ladder_router.message(Command("ladder"))
-async def cmd_ladder(message: Message, bot: Bot):
+async def cmd_ladder(message: Message, bot: Bot, db: Database, settings: SettingsManager):
     chat_id = message.chat.id
     if chat_id in active_ladder_games:
         return await message.reply("Пожалуйста, подождите, пока текущая игра в 'Лесенку' в этом чате не закончится.")
@@ -227,20 +215,20 @@ async def cmd_ladder(message: Message, bot: Bot):
         return await message.reply("Неверный формат. Используйте: `/ladder <ставка>` (например, `/ladder 10`).")
     
     stake = int(args[1])
-    min_bet = settings_manager.ladder_min_bet
-    max_bet = settings_manager.ladder_max_bet
+    min_bet = settings.ladder_min_bet
+    max_bet = settings.ladder_max_bet
     
     if not (min_bet <= stake <= max_bet):
         return await message.reply(f"Ставка должна быть от {min_bet} до {max_bet} 🍺.")
-    if not await check_user_registered(message, bot):
+    if not await check_user_registered(message, bot, db):
         return
     balance = await db.get_user_beer_rating(message.from_user.id)
     if balance < stake:
         return await message.reply(f"У вас недостаточно пива для этой ставки. Нужно {stake} 🍺, у вас {balance} 🍺.")
-    await start_ladder_game(message.chat, message.from_user, bot, stake)
+    await start_ladder_game(message.chat, message.from_user, bot, stake, db)
 
 @ladder_router.callback_query(LadderCallbackData.filter(F.action == "play_again"))
-async def on_ladder_play_again(callback: CallbackQuery, callback_data: LadderCallbackData, bot: Bot):
+async def on_ladder_play_again(callback: CallbackQuery, callback_data: LadderCallbackData, bot: Bot, db: Database):
     await callback.answer()
     stake = callback_data.stake
     
@@ -251,10 +239,10 @@ async def on_ladder_play_again(callback: CallbackQuery, callback_data: LadderCal
          return await callback.message.answer(f"Недостаточно пива для новой игры! Нужно {stake} 🍺, у вас {balance} 🍺.")
     
     await callback.message.delete()
-    await start_ladder_game(callback.message.chat, callback.from_user, bot, stake)
+    await start_ladder_game(callback.message.chat, callback.from_user, bot, stake, db)
 
 @ladder_router.callback_query(LadderCallbackData.filter(F.action.in_({"play", "cash_out"})))
-async def on_ladder_game_callback(callback: CallbackQuery, callback_data: LadderCallbackData, bot: Bot):
+async def on_ladder_game_callback(callback: CallbackQuery, callback_data: LadderCallbackData, bot: Bot, db: Database):
     chat_id = callback.message.chat.id
     user = callback.from_user
     if chat_id not in active_ladder_games:
@@ -271,7 +259,7 @@ async def on_ladder_game_callback(callback: CallbackQuery, callback_data: Ladder
         if game.current_win == 0 and game.current_level == 1:
             return await callback.answer("Сделайте хотя бы один ход!", show_alert=True)
         await callback.answer()
-        await end_ladder_game(bot, chat_id, user, game, is_win=True)
+        await end_ladder_game(bot, chat_id, user, game, is_win=True, db=db)
         return
 
     if action == "play":
@@ -288,7 +276,7 @@ async def on_ladder_game_callback(callback: CallbackQuery, callback_data: Ladder
             game.current_level += 1
             game.current_win = rewards[level - 1]
             if game.current_level > LADDER_LEVELS:
-                await end_ladder_game(bot, chat_id, user, game, is_win=True)
+                await end_ladder_game(bot, chat_id, user, game, is_win=True, db=db)
             else:
                 try:
                     keyboard = await generate_ladder_keyboard(game, rewards)
@@ -299,4 +287,4 @@ async def on_ladder_game_callback(callback: CallbackQuery, callback_data: Ladder
                          logging.error(f"Ошибка при обновлении Лесенки: {e}")
         else:
             game.last_choice = choice
-            await end_ladder_game(bot, chat_id, user, game, is_win=False)
+            await end_ladder_game(bot, chat_id, user, game, is_win=False, db=db)
