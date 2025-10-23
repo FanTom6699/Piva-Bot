@@ -1,7 +1,7 @@
 # database.py
 import aiosqlite
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 
 class Database:
     def __init__(self, db_name='bot_database.db'):
@@ -22,6 +22,27 @@ class Database:
                 CREATE TABLE IF NOT EXISTS game_data (key TEXT PRIMARY KEY, value INTEGER)
             ''')
             
+            # --- НОВЫЕ ТАБЛИЦЫ ДЛЯ РЕЙДА ---
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS active_raids (
+                    chat_id INTEGER PRIMARY KEY,
+                    message_id INTEGER,
+                    boss_health INTEGER,
+                    boss_max_health INTEGER,
+                    reward_pool INTEGER,
+                    end_time TEXT
+                )
+            ''')
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS raid_participants (
+                    raid_id INTEGER,
+                    user_id INTEGER,
+                    damage_dealt INTEGER DEFAULT 0,
+                    last_hit_time TEXT,
+                    PRIMARY KEY (raid_id, user_id)
+                )
+            ''')
+            
             # --- ИНИЦИАЛИЗАЦИЯ НАСТРОЕК ---
             # (INSERT OR IGNORE - добавит, только если ключа еще нет)
             default_settings = [
@@ -32,7 +53,17 @@ class Database:
                 ('roulette_min_bet', 5),
                 ('roulette_max_bet', 100),
                 ('ladder_min_bet', 5),
-                ('ladder_max_bet', 100)
+                ('ladder_max_bet', 100),
+                ('raid_boss_health', 100000),
+                ('raid_reward_pool', 5000),
+                ('raid_duration_hours', 24),
+                ('raid_hit_cooldown_minutes', 30),
+                ('raid_strong_hit_cost', 100),
+                ('raid_strong_hit_damage_min', 500),
+                ('raid_strong_hit_damage_max', 1000),
+                ('raid_normal_hit_damage_min', 10),
+                ('raid_normal_hit_damage_max', 50),
+                ('raid_reminder_hours', 6)
             ]
             await db.executemany("INSERT OR IGNORE INTO game_data (key, value) VALUES (?, ?)", default_settings)
             
@@ -48,6 +79,11 @@ class Database:
         async with aiosqlite.connect(self.db_name) as db:
             await db.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
             await db.commit()
+
+    async def get_all_chats(self) -> List[Tuple[int, str]]:
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT chat_id, title FROM chats ORDER BY title")
+            return await cursor.fetchall()
 
     async def get_all_chat_ids(self):
         async with aiosqlite.connect(self.db_name) as db:
@@ -148,5 +184,62 @@ class Database:
 
     async def update_setting(self, key: str, value: int):
         async with aiosqlite.connect(self.db_name) as db:
-            await db.execute("UPDATE game_data SET value = ? WHERE key = ?", (value, key))
+            await db.execute("INSERT OR REPLACE INTO game_data (key, value) VALUES (?, ?)", (key, value))
             await db.commit()
+
+    # --- НОВЫЕ ФУНКЦИИ ДЛЯ РЕЙДОВ ---
+    
+    async def create_raid(self, chat_id: int, message_id: int, health: int, reward: int, end_time: datetime):
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute(
+                "INSERT INTO active_raids (chat_id, message_id, boss_health, boss_max_health, reward_pool, end_time) VALUES (?, ?, ?, ?, ?, ?)",
+                (chat_id, message_id, health, health, reward, end_time.isoformat())
+            )
+            await db.execute("DELETE FROM raid_participants WHERE raid_id = ?", (chat_id,))
+            await db.commit()
+
+    async def get_active_raid(self, chat_id: int):
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT * FROM active_raids WHERE chat_id = ?", (chat_id,))
+            return await cursor.fetchone() 
+
+    async def get_all_active_raids(self):
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT * FROM active_raids")
+            return await cursor.fetchall()
+
+    async def update_raid_health(self, chat_id: int, damage: int):
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("UPDATE active_raids SET boss_health = boss_health - ? WHERE chat_id = ?", (damage, chat_id))
+            await db.commit()
+            
+    async def delete_raid(self, chat_id: int):
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("DELETE FROM active_raids WHERE chat_id = ?", (chat_id,))
+            await db.execute("DELETE FROM raid_participants WHERE raid_id = ?", (chat_id,))
+            await db.commit()
+
+    async def add_raid_participant(self, chat_id: int, user_id: int, damage: int):
+        now_iso = datetime.now().isoformat()
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute(
+                """
+                INSERT INTO raid_participants (raid_id, user_id, damage_dealt, last_hit_time)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(raid_id, user_id) DO UPDATE SET
+                damage_dealt = damage_dealt + excluded.damage_dealt,
+                last_hit_time = excluded.last_hit_time
+                """,
+                (chat_id, user_id, damage, now_iso)
+            )
+            await db.commit()
+
+    async def get_raid_participant(self, chat_id: int, user_id: int):
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT * FROM raid_participants WHERE raid_id = ? AND user_id = ?", (chat_id, user_id))
+            return await cursor.fetchone()
+
+    async def get_all_raid_participants(self, chat_id: int) -> List[Tuple[int, int]]:
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT user_id, damage_dealt FROM raid_participants WHERE raid_id = ? ORDER BY damage_dealt DESC", (chat_id,))
+            return await cursor.fetchall()
