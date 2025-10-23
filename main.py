@@ -5,28 +5,26 @@ import logging
 from aiogram import Bot, Dispatcher
 
 import config
-from handlers import router, admin_router, db
+from handlers import main_router # <-- ИЗМЕНЕНИЕ ЗДЕСЬ
+from database import Database # <-- Нам нужен класс, а не объект
 
 async def main():
-    # Настройка логирования для вывода информации в консоль
+    # Настройка логирования
     logging.basicConfig(level=logging.INFO)
     
-    # Инициализация базы данных (создание таблиц, если их нет)
+    # Инициализация базы данных
+    db = Database(db_name='/data/bot_database.db')
     await db.initialize()
     
     # Создание объектов бота и диспетчера
     bot = Bot(token=config.BOT_TOKEN)
     dp = Dispatcher()
     
-    # Подключение роутеров с командами
-    # Подключаем команды для обычных пользователей
-    dp.include_router(router)
-    # Подключаем команды для админа
-    dp.include_router(admin_router)
+    # Подключение главного роутера
+    dp.include_router(main_router) # <-- ИЗМЕНЕНИЕ ЗДЕСЬ
 
-    # Перед запуском polling удаляем все старые обновления, чтобы бот не отвечал на старые сообщения
-    await bot.delete_webhook(drop_pending_updates=True)
     # Запуск бота
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
