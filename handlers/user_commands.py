@@ -16,8 +16,9 @@ db = Database(db_name='/data/bot_database.db')
 
 BEER_COOLDOWN_SECONDS = 7200
 user_spam_tracker = {}
+JACKPOT_CHANCE = 150 # Шанс 1 к 150
 
-# --- ИСПРАВЛЕНИЕ ЗДЕСЬ: Заменяем * на <i> ---
+# --- ФРАЗЫ ДЛЯ КОМАНДЫ /beer ---
 BEER_WIN_PHRASES = [
     "🥳🍻 <i>Ты успешно бахнул!</i>\nТвой рейтинг вырос на: <b>+{rating_change}</b> 🍺!",
     "🎉🍻 <i>Отличный глоток! Удача на твоей стороне!</i>\nТвой рейтинг вырос на: <b>+{rating_change}</b> 🍺!",
@@ -32,7 +33,6 @@ BEER_LOSE_PHRASES_ZERO = [
     "😭💔 <i>Катастрофа! Братья Уизли отжали у тебя всё!</i>\nТы потерял <b>{rating_loss}</b> 🍺 и твой рейтинг обнулился!",
     "😖🍻 <i>Полный провал! Все пиво на пол!</i>\n<b>{rating_loss}</b> 🍺 рейтинга потеряно. Ты на нуле.",
 ]
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
 # --- КОМАНДЫ ---
 @user_commands_router.message(Command("beer"))
@@ -51,27 +51,58 @@ async def cmd_beer(message: Message, bot: Bot):
         if time_since.total_seconds() < BEER_COOLDOWN_SECONDS:
             remaining = timedelta(seconds=BEER_COOLDOWN_SECONDS) - time_since
             return await message.answer(f"⌛ Ты уже недавно пил! 🍻\nВернись в бар через: {format_time_delta(remaining)}.")
+    
     current_rating = await db.get_user_beer_rating(user_id)
     outcomes = ['small_win', 'loss', 'big_win']
     weights = [0.60, 0.25, 0.15]
     chosen_outcome = random.choices(outcomes, weights=weights, k=1)[0]
+    
     if chosen_outcome == 'small_win': rating_change = random.randint(1, 4)
     elif chosen_outcome == 'big_win': rating_change = random.randint(5, 10)
     else: rating_change = random.randint(-5, -1)
+    
+    phrase = ""
+    
     if rating_change > 0:
         new_rating = current_rating + rating_change
         phrase = random.choice(BEER_WIN_PHRASES).format(rating_change=rating_change)
     else:
         rating_loss = abs(rating_change)
+        actual_loss = 0
+        
         if current_rating - rating_loss <= 0:
             actual_loss = current_rating
             new_rating = 0
-            phrase = random.choice(BEER_LOSE_PHRASES_ZERO).format(rating_loss=actual_loss) if actual_loss > 0 else "Ты попытался выпить, но у тебя и так 0 🍺."
+            if actual_loss > 0:
+                phrase = random.choice(BEER_LOSE_PHRASES_ZERO).format(rating_loss=actual_loss)
+            else:
+                phrase = "Ты попытался выпить, но у тебя и так 0 🍺."
         else:
+            actual_loss = rating_loss
             new_rating = current_rating - rating_loss
             phrase = random.choice(BEER_LOSE_PHRASES_RATING).format(rating_loss=rating_loss)
+        
+        # --- ЛОГИКА ДЖЕКПОТА: ПОПОЛНЕНИЕ ---
+        if actual_loss > 0:
+            await db.update_jackpot(actual_loss) # Молча пополняем джекпот
+            
     await db.update_beer_data(user_id, new_rating)
     await message.answer(phrase, parse_mode='HTML')
+
+    # --- ЛОГИКА ДЖЕКПОТА: РОЗЫГРЫШ ---
+    if random.randint(1, JACKPOT_CHANCE) == 1:
+        current_jackpot = await db.get_jackpot()
+        if current_jackpot > 0:
+            await db.reset_jackpot()
+            await db.change_rating(user_id, current_jackpot)
+            
+            await bot.send_message(
+                chat_id=message.chat.id,
+                text=f"🎉🎉🎉 <b>Д Ж Е К П О Т!</b> 🎉🎉🎉\n\n"
+                     f"Невероятно! <b>{message.from_user.full_name}</b> срывает куш и забирает весь банк!\n\n"
+                     f"<b>Выигрыш: +{current_jackpot} 🍺!</b>",
+                parse_mode='HTML'
+            )
 
 @user_commands_router.message(Command("top"))
 async def cmd_top(message: Message, bot: Bot):
@@ -97,4 +128,3 @@ async def cmd_top(message: Message, bot: Bot):
         top_text += f"{medal} {place}. {full_name} — <code>{rating_str}</code> 🍺\n"
             
     await message.answer(top_text, parse_mode='HTML')
-    
