@@ -17,21 +17,22 @@ db = Database(db_name='/data/bot_database.db')
 BEER_COOLDOWN_SECONDS = 7200
 user_spam_tracker = {}
 
-# --- ФРАЗЫ ДЛЯ КОМАНДЫ /beer ---
+# --- ИЗМЕНЕНИЕ ЗДЕСЬ: Обновленные фразы для /beer ---
 BEER_WIN_PHRASES = [
-    "🥳🍻 Ты успешно бахнул на <b>+{rating_change}</b> 🍺!",
-    "🎉🍻 Отличный глоток! Твой рейтинг вырос на <b>+{rating_change}</b> 🍺!",
-    "😌🍻 Удача на твоей стороне! Ты выпил +<b>{rating_change}</b> 🍺!",
-    "🌟🍻 Победа! Бармен налил тебе +<b>{rating_change}</b> 🍺!",
+    "🥳🍻 *Ты успешно бахнул!*\nТвой рейтинг вырос на: <b>+{rating_change}</b> 🍺!",
+    "🎉🍻 *Отличный глоток! Удача на твоей стороне!*\nТвой рейтинг вырос на: <b>+{rating_change}</b> 🍺!",
+    "😌🍻 *Какой приятный вкус победы!*\nТы выпил +<b>{rating_change}</b> 🍺!",
+    "🌟🍻 *Победа! Бармен налил тебе еще!*\nПолучаешь +<b>{rating_change}</b> 🍺!",
 ]
 BEER_LOSE_PHRASES_RATING = [
-    "😖🍻 Неудача! Ты пролил <b>{rating_loss}</b> 🍺 рейтинга!",
-    "😡🍻 Обидно! <b>{rating_loss}</b> 🍺 испарилось!",
+    "😖🍻 *Неудача! Ты пролил пиво...*\nТвой рейтинг упал на: <b>{rating_loss}</b> 🍺.",
+    "😡🍻 *Обидно! Кто-то толкнул тебя под локоть!*\nТы потерял <b>{rating_loss}</b> 🍺 рейтинга.",
 ]
 BEER_LOSE_PHRASES_ZERO = [
-    "😭💔 Братья Уизли отжали у тебя все <b>{rating_loss}</b> 🍺! Ты на нуле!",
-    "😖🍻 Полный провал! Весь твой рейтинг (<b>{rating_loss}</b> 🍺) обнулился!",
+    "😭💔 *Катастрофа! Братья Уизли отжали у тебя всё!*\nТы потерял <b>{rating_loss}</b> 🍺 и твой рейтинг обнулился!",
+    "😖🍻 *Полный провал! Все пиво на пол!* <b>{rating_loss}</b> 🍺 рейтинга потеряно. Ты на нуле.",
 ]
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 # --- КОМАНДЫ ---
 @user_commands_router.message(Command("beer"))
@@ -78,12 +79,10 @@ async def cmd_top(message: Message, bot: Bot):
         return
     top_users = await db.get_top_users()
     if not top_users: return await message.answer("В баре пока никого нет, чтобы составить топ.")
-
-    # --- ИЗМЕНЕНИЕ ЗДЕСЬ: Логика выравнивания ---
-    # 1. Находим максимальную ширину рейтинга для выравнивания
+    
     max_rating_width = 0
-    if top_users: # Убедимся, что список не пустой
-        max_rating_width = len(str(top_users[0][2])) # Берем рейтинг первого (самого большого)
+    if top_users:
+        max_rating_width = len(str(top_users[0][2]))
     
     top_text = "🏆 <b>Топ-10 пивных мастеров:</b> 🏆\n\n"
     medals = ["🥇", "🥈", "🥉"]
@@ -93,10 +92,8 @@ async def cmd_top(message: Message, bot: Bot):
         place = i + 1
         medal = medals[i] if i < 3 else "🏅"
         
-        # 2. Выравниваем рейтинг по правому краю
         rating_str = str(rating).rjust(max_rating_width)
         
         top_text += f"{medal} {place}. {full_name} — <code>{rating_str}</code> 🍺\n"
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             
     await message.answer(top_text, parse_mode='HTML')
