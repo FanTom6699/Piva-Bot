@@ -4,7 +4,7 @@ from database import Database
 
 class SettingsManager:
     def __init__(self):
-        # Значения по умолчанию, если в БД ничего нет
+        # Значения по умолчанию
         self.beer_cooldown = 7200
         self.jackpot_chance = 150
         self.roulette_cooldown = 600
@@ -12,8 +12,6 @@ class SettingsManager:
         self.roulette_max_bet = 100
         self.ladder_min_bet = 5
         self.ladder_max_bet = 100
-        
-        # --- НОВЫЕ НАСТРОЙКИ РЕЙДА ---
         self.raid_boss_health = 100000
         self.raid_reward_pool = 5000
         self.raid_duration_hours = 24
@@ -23,13 +21,12 @@ class SettingsManager:
         self.raid_strong_hit_damage_max = 1000
         self.raid_normal_hit_damage_min = 10
         self.raid_normal_hit_damage_max = 50
-        self.raid_reminder_hours = 6 # Как часто слать напоминание
+        self.raid_reminder_hours = 6
 
     async def load_settings(self, db: Database):
         logging.info("Загрузка настроек из БД...")
         try:
             settings_from_db = await db.get_all_settings()
-            # Обновляем атрибуты класса, используя значения из БД
             for key, value in settings_from_db.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
@@ -73,3 +70,5 @@ class SettingsManager:
             f"  • Урон (обычный): <code>{self.raid_normal_hit_damage_min}-{self.raid_normal_hit_damage_max}</code>\n"
             f"  • Напоминание: <code>каждые {self.raid_reminder_hours}</code> ч"
         )
+
+# НЕ СОЗДАЕМ ЭКЗЕМПЛЯР ЗДЕСЬ
