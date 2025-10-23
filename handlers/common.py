@@ -5,10 +5,9 @@ from aiogram.filters import CommandStart, Command
 from database import Database
 
 common_router = Router()
-db = Database(db_name='/data/bot_database.db')
 
 # --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ РЕГИСТРАЦИИ ---
-async def check_user_registered(message_or_callback: Message | CallbackQuery, bot: Bot) -> bool:
+async def check_user_registered(message_or_callback: Message | CallbackQuery, bot: Bot, db: Database) -> bool:
     user = message_or_callback.from_user
     if await db.user_exists(user.id):
         return True
@@ -29,7 +28,7 @@ async def check_user_registered(message_or_callback: Message | CallbackQuery, bo
 
 # --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА ---
 @common_router.my_chat_member()
-async def handle_bot_membership(event: ChatMemberUpdated, bot: Bot):
+async def handle_bot_membership(event: ChatMemberUpdated, bot: Bot, db: Database):
     old_status = event.old_chat_member.status
     new_status = event.new_chat_member.status
     if old_status in ("left", "kicked") and new_status in ("member", "administrator"):
@@ -39,7 +38,7 @@ async def handle_bot_membership(event: ChatMemberUpdated, bot: Bot):
 
 # --- КОМАНДЫ ПОЛЬЗОВАТЕЛЕЙ ---
 @common_router.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, db: Database):
     user = message.from_user
     if not await db.user_exists(user.id):
         await db.add_user(user.id, user.first_name, user.last_name, user.username)
@@ -89,9 +88,8 @@ async def cmd_id(message: Message):
         parse_mode='HTML'
     )
 
-# --- НОВАЯ КОМАНДА ДЖЕКПОТА ---
 @common_router.message(Command("jackpot"))
-async def cmd_jackpot(message: Message):
+async def cmd_jackpot(message: Message, db: Database):
     current_jackpot = await db.get_jackpot()
     await message.answer(
         f"💰 <b>Текущий Джекпот</b> 💰\n\n"
