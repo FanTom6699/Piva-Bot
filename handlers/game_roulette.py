@@ -14,6 +14,7 @@ from aiogram.exceptions import TelegramBadRequest
 from database import Database
 from .common import check_user_registered
 from utils import format_time_delta
+from settings import settings_manager
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 roulette_router = Router()
@@ -35,7 +36,6 @@ class GameState:
         self.players = {creator.id: creator}
         self.task = None
 
-ROULETTE_COOLDOWN_SECONDS = 600
 ROULETTE_LOBBY_TIMEOUT_SECONDS = 60
 active_games = {}
 chat_cooldowns = {}
@@ -75,18 +75,28 @@ async def cmd_roulette(message: Message, bot: Bot):
         )
     chat_id = message.chat.id
     if chat_id in active_games: return await message.reply("В этом чате уже идет игра.")
+    
+    roulette_cooldown = settings_manager.roulette_cooldown
     if chat_id in chat_cooldowns:
         time_since = datetime.now() - chat_cooldowns[chat_id]
-        if time_since.total_seconds() < ROULETTE_COOLDOWN_SECONDS:
-            remaining = timedelta(seconds=ROULETTE_COOLDOWN_SECONDS) - time_since
+        if time_since.total_seconds() < roulette_cooldown:
+            remaining = timedelta(seconds=roulette_cooldown) - time_since
             return await message.reply(f"Создавать новую игру можно будет через: {format_time_delta(remaining)}.")
+            
     stake, max_players = int(args[1]), int(args[2])
-    if not (5 <= stake <= 100): return await message.reply("Ставка должна быть от 5 до 100 🍺.")
+    
+    min_bet = settings_manager.roulette_min_bet
+    max_bet = settings_manager.roulette_max_bet
+    
+    if not (min_bet <= stake <= max_bet):
+        return await message.reply(f"Ставка должна быть от {min_bet} до {max_bet} 🍺.")
     if not (2 <= max_players <= 6): return await message.reply("Количество игроков должно быть от 2 до 6.")
+    
     creator = message.from_user
     if not await check_user_registered(message, bot): return
     creator_balance = await db.get_user_beer_rating(creator.id)
     if creator_balance < stake: return await message.reply(f"У вас недостаточно пива. Нужно {stake} 🍺, у вас {creator_balance} 🍺.")
+    
     await db.change_rating(creator.id, -stake)
     lobby_message = await message.answer("Создание лобби...")
     game = GameState(creator, stake, max_players, lobby_message.message_id)
@@ -100,8 +110,10 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
     chat_id = callback.message.chat.id
     user = callback.from_user
     if chat_id not in active_games: return await callback.answer("Эта игра уже неактивна.", show_alert=True)
+    
     game = active_games[chat_id]
     action = callback_data.action
+    
     if action == "join":
         if user.id in game.players: return await callback.answer("Вы уже в игре!", show_alert=True)
         if len(game.players) >= game.max_players: return await callback.answer("Лобби заполнено.", show_alert=True)
@@ -116,6 +128,7 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
             await start_roulette_game(chat_id, bot)
         else:
             await callback.message.edit_text(await generate_lobby_text(game), reply_markup=get_roulette_keyboard(game, user.id), parse_mode='HTML')
+            
     elif action == "leave":
         if user.id not in game.players: return await callback.answer("Вы не в этой игре.", show_alert=True)
         if user.id == game.creator.id: return await callback.answer("Создатель не может покинуть игру. Только отменить.", show_alert=True)
@@ -123,6 +136,7 @@ async def on_roulette_button_click(callback: CallbackQuery, callback_data: Roule
         await db.change_rating(user.id, game.stake)
         await callback.answer("Вы покинули игру, ваша ставка возвращена.", show_alert=True)
         await callback.message.edit_text(await generate_lobby_text(game), reply_markup=get_roulette_keyboard(game, user.id), parse_mode='HTML')
+        
     elif action == "cancel":
         if user.id != game.creator.id: return await callback.answer("Только создатель может отменить игру.", show_alert=True)
         if game.task: game.task.cancel()
