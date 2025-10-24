@@ -12,6 +12,8 @@ from contextlib import suppress
 from typing import Dict, List, Set, Any
 from collections import Counter
 
+from aiogram.filters import StateFilter # <-- ВОТ ЭТА СТРОКА
+
 from database import Database
 from settings import SettingsManager
 from utils import format_time_left
@@ -833,7 +835,6 @@ async def lynch_vote_timer_task(game: GameManager):
         
     logging.info(f"[Mafia {game.chat_id}] Время Суда Линча вышло. Подсчет...")
     
-    # (ЗАГЛУШКА УБРАНА)
     await end_day_vote_lynching(game)
     
     
@@ -856,10 +857,6 @@ async def end_day_vote_lynching(game: GameManager):
     votes = game.day_votes_lynch.values()
     lynch_votes = sum(1 for v in votes if v == 'lynch')
     pardon_votes = sum(1 for v in votes if v == 'pardon')
-    total_votes = lynch_votes + pardon_votes
-    
-    # (Для ничьи: lynch_votes == pardon_votes -> помилован)
-    # (Для победы: lynch_votes > pardon_votes)
     
     is_lynched = lynch_votes > pardon_votes
     
