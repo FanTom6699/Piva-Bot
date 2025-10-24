@@ -284,6 +284,13 @@ class Database:
                 return True
             except aiosqlite.IntegrityError:
                 return False
+    
+    # --- НОВАЯ ФУНКЦИЯ ---
+    async def update_mafia_game_message_id(self, chat_id: int, message_id: int):
+        """Обновляет message_id для лобби (после того как мы его отправили)."""
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("UPDATE mafia_games SET message_id = ? WHERE chat_id = ?", (message_id, chat_id))
+            await db.commit()
 
     async def get_mafia_game(self, chat_id: int):
         """Получает данные об активной игре в Мафию."""
@@ -367,7 +374,6 @@ class Database:
             )
             return await cursor.fetchone()
 
-    # --- НОВАЯ ФУНКЦИЯ ---
     async def get_user_by_id(self, user_id: int):
         """Получает базовые данные пользователя (имя) по ID."""
         async with aiosqlite.connect(self.db_name) as db:
