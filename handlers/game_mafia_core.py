@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
 from contextlib import suppress
+from typing import Dict, List, Set, Any
 
 from database import Database
 from settings import SettingsManager
@@ -16,9 +17,9 @@ from .user_commands import active_games, GAME_ACTIVE_KEY # Для очистки
 
 mafia_game_router = Router()
 
-# --- FSM (Мы переносим его сюда из 'lobby') ---
+# --- FSM (Главный) ---
 class MafiaGameStates(StatesGroup):
-    game_in_progress = State()      # Общее состояние игры
+    game_in_progress = State()      # Общее состояние игры (для модерации чата)
     awaiting_last_word = State()  # Состояние для убитого (ждем 30 сек)
     night_voting = State()        # Состояние для чата мафии
 
@@ -33,6 +34,8 @@ ROLE_MAFIA = 'mafia'               # 🥤 Трезвенник
 ROLE_DETECTIVE = 'detective'       # 🕵️‍♂️ Бармен
 ROLE_DOCTOR = 'doctor'             # 🩺 Похметолог
 ROLE_CIVILIAN = 'civilian'         # 🍻 Любитель Пива
+
+MAFIA_TEAM_ROLES = [ROLE_MAFIA_LEADER, ROLE_MAFIA]
 
 # --- МАТРИЦА РОЛЕЙ (Как мы и договорились) ---
 # 'l' - leader, 'm' - mafia, 'd' - detective, 'h' - doctor, 'c' - civilian
@@ -85,20 +88,59 @@ ROLE_DESCRIPTIONS = {
     }
 }
 
-# --- ЯДРО ИГРЫ: РАЗДАЧА РОЛЕЙ ---
+# --- МЕНЕДЖЕР ИГРЫ (для хранения 'живых' данных) ---
+class GameManager:
+    """Хранит 'живые' данные текущей игры (голоса, таймеры)."""
+    def __init__(self, chat_id: int, bot: Bot, db: Database, settings: SettingsManager):
+        self.chat_id = chat_id
+        self.bot = bot
+        self.db = db
+        self.settings = settings
+        self.players: Dict[int, Dict[str, Any]] = {} # {user_id: {'role': '...', 'is_alive': True, 'name': '...'}}
+        self.night_votes: Dict[str, Dict[int, int]] = { # {'kill': {voter_id: target_id}, 'heal': ..., 'check': ...}
+            'kill': {}, 'heal': {}, 'check': {}
+        }
+        self.mafia_leader_id: int = 0
+        self.night_timer_task: asyncio.Task = None
 
+    async def load_players_from_db(self):
+        """Загружает игроков из БД в self.players и находит Лидера."""
+        players_data = await self.db.get_mafia_players(self.chat_id)
+        for p in players_data:
+            user_id = p[1]
+            role = p[2]
+            is_alive = bool(p[3])
+            db_user = await self.db.get_user_by_id(user_id)
+            name = db_user[0] if db_user else f"Игрок {user_id}"
+            
+            self.players[user_id] = {'role': role, 'is_alive': is_alive, 'name': html.quote(name)}
+            
+            if role == ROLE_MAFIA_LEADER:
+                self.mafia_leader_id = user_id
+                
+    def get_alive_players(self, roles: List[str] = None) -> List[int]:
+        """Возвращает user_id живых игроков, опционально фильтруя по ролям."""
+        alive = []
+        for user_id, data in self.players.items():
+            if data['is_alive']:
+                if roles is None: # Если роли не важны
+                    alive.append(user_id)
+                elif data['role'] in roles: # Если фильтруем по ролям
+                    alive.append(user_id)
+        return alive
+
+# Словарь для хранения активных GameManager'ов
+active_game_managers: Dict[int, GameManager] = {}
+
+
+# --- ЯДРО ИГРЫ: РАЗДАЧА РОЛЕЙ ---
 async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, settings: SettingsManager, players: list):
-    """
-    Вызывается из 'lobby' после всех проверок.
-    Раздает роли, сохраняет в БД, пишет в ЛС и запускает Ночь 1.
-    """
     logging.info(f"[Mafia {chat_id}] Шаг 2: Раздача ролей...")
     
     player_count = len(players)
     player_ids = [p[1] for p in players] # p[1] это user_id
     random.shuffle(player_ids)
     
-    # 1. Генерируем список ролей
     roles_config = MAFIA_ROLES_MATRIX[player_count]
     roles_list = []
     roles_list.extend([ROLE_MAFIA_LEADER] * roles_config['l'])
@@ -108,17 +150,14 @@ async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, setti
     roles_list.extend([ROLE_CIVILIAN] * roles_config['c'])
     random.shuffle(roles_list)
     
-    # 2. Сопоставляем игроков и роли
     assigned_roles = {} # {user_id: role_key}
     mafia_team_info = {} # {user_id: "Name (Role)"}
     
-    # Получаем имена из БД
     player_names = {} # {user_id: first_name}
     for user_id in player_ids:
         db_user = await db.get_user_by_id(user_id)
         player_names[user_id] = html.quote(db_user[0]) if db_user else f"Игрок {user_id}"
         
-    # Сначала находим мафию, чтобы составить список
     for i, user_id in enumerate(player_ids):
         role = roles_list[i]
         assigned_roles[user_id] = role
@@ -126,21 +165,17 @@ async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, setti
             role_name = "Главарь" if role == ROLE_MAFIA_LEADER else "Трезвенник"
             mafia_team_info[user_id] = f"{player_names[user_id]} (🥤 {role_name})"
 
-    # 3. Готовим задачи (Рассылка в ЛС + Запись в БД)
     tasks = []
     
-    # Готовим задачи на запись в БД
     for user_id, role in assigned_roles.items():
         tasks.append(
             db.update_mafia_player_role(chat_id, user_id, role)
         )
 
-    # Готовим задачи на рассылку в ЛС
     for user_id, role in assigned_roles.items():
         role_data = ROLE_DESCRIPTIONS[role]
         text = f"<b>{role_data['title']}</b>\n\n{role_data['description']}"
         
-        # Добавляем список команды для Мафии
         if role in [ROLE_MAFIA, ROLE_MAFIA_LEADER]:
             text += "\n\n<b>Ваша команда:</b>\n"
             for mafia_id, mafia_name in mafia_team_info.items():
@@ -153,19 +188,14 @@ async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, setti
             bot.send_message(user_id, text, parse_mode="HTML")
         )
 
-    # 4. Выполняем все задачи
     try:
         await asyncio.gather(*tasks)
     except Exception as e:
-        # Эта ошибка не должна произойти, т.к. мы уже проверяли ЛС
         logging.error(f"[Mafia {chat_id}] Ошибка при рассылке ролей: {e}")
-        # (В реальной ситуации здесь нужна очистка)
         pass 
 
-    # 5. Обновляем статус игры
     await db.update_mafia_game_status(chat_id, "night", day_count=1)
 
-    # 6. Обновляем сообщение в группе
     game = await db.get_mafia_game(chat_id)
     message_id = game[1]
     
@@ -177,10 +207,285 @@ async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, setti
          "Все роли розданы в ЛС! Бар погружается в тишину.\n"
          "Активные роли делают свой ход..."),
         chat_id, message_id,
-        reply_markup=None # Убираем кнопки лобби
+        reply_markup=None 
     )
     
     logging.info(f"[Mafia {chat_id}] Роли розданы. Начинаем Ночь 1...")
 
-    # 7. Вызываем следующую фазу (которую напишем в след. файле)
-    # await start_night_phase(chat_id, bot, db, settings, 1)
+    # 7. Вызываем следующую фазу
+    await start_night_phase(chat_id, bot, db, settings, day_count=1)
+
+# --- ЯДРО ИГРЫ: ФАЗА НОЧИ ---
+
+async def generate_night_vote_keyboard(game: GameManager, player_role: str, user_id: int) -> InlineKeyboardMarkup:
+    """Генерирует клавиатуру для ночного голосования в ЛС."""
+    buttons = []
+    
+    if player_role in MAFIA_TEAM_ROLES:
+        action = "kill"
+        text = "🥤 Кого 'проливаем'?"
+        # Мафия не может голосовать за своих
+        targets = game.get_alive_players()
+        mafia_team_ids = game.get_alive_players(MAFIA_TEAM_ROLES)
+        targets = [pid for pid in targets if pid not in mafia_team_ids]
+    
+    elif player_role == ROLE_DETECTIVE:
+        action = "check"
+        text = "🕵️‍♂️ Кого проверяем?"
+        # Детектив не может проверять себя
+        targets = [pid for pid in game.get_alive_players() if pid != user_id]
+        
+    elif player_role == ROLE_DOCTOR:
+        action = "heal"
+        text = "🩺 Кого спасаем?"
+        targets = game.get_alive_players() # Доктор может спасать себя
+    
+    else: return None # У Мирного нет кнопок
+    
+    for target_user_id in targets:
+        target_name = game.players[target_user_id]['name']
+        buttons.append([
+            InlineKeyboardButton(
+                text=target_name,
+                callback_data=MafiaNightVoteCallbackData(action=action, target_user_id=target_user_id).pack()
+            )
+        ])
+    
+    # Добавляем кнопку "Спасти себя" для Доктора
+    if player_role == ROLE_DOCTOR:
+        player_data = await game.db.get_mafia_player(game.chat_id, user_id)
+        self_heals_used = player_data[4] # self_heals_used
+        
+        if self_heals_used == 0:
+            buttons.append([
+                InlineKeyboardButton(
+                    text="🛡️ Спасти СЕБЯ (Остался 1 раз)",
+                    callback_data=MafiaNightVoteCallbackData(action="self_heal", target_user_id=user_id).pack()
+                )
+            ])
+            
+    if not buttons:
+        return None # (например, мафии некого убивать)
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+async def start_night_phase(chat_id: int, bot: Bot, db: Database, settings: SettingsManager, day_count: int):
+    """
+    Запускает ночную фазу:
+    1. Создает GameManager.
+    2. Рассылает всем кнопки в ЛС.
+    3. Включает FSM для чата мафии.
+    4. Запускает ночной таймер.
+    """
+    logging.info(f"[Mafia {chat_id}] Ночь {day_count} началась.")
+    
+    # 1. Создаем Менеджер Игры
+    game = GameManager(chat_id, bot, db, settings)
+    await game.load_players_from_db()
+    active_game_managers[chat_id] = game # Сохраняем его
+
+    # 2. Рассылаем кнопки и включаем FSM
+    tasks = []
+    alive_players = game.get_alive_players()
+    
+    for user_id in alive_players:
+        role = game.players[user_id]['role']
+        
+        # Генерируем кнопки
+        keyboard = await generate_night_vote_keyboard(game, role, user_id)
+        
+        if keyboard:
+            tasks.append(
+                bot.send_message(user_id, "Выберите ваш ход:", reply_markup=keyboard)
+            )
+        
+        # Включаем FSM для чата мафии
+        if role in MAFIA_TEAM_ROLES:
+            fsm_context = FSMContext(bot, user_id=user_id, chat_id=user_id)
+            tasks.append(
+                fsm_context.set_state(MafiaGameStates.night_voting)
+            )
+            
+    await asyncio.gather(*tasks)
+
+    # 3. (ЗАГЛУШКА) Запускаем ночной таймер
+    # task = asyncio.create_task(night_timer_task(game))
+    # game.night_timer_task = task
+    
+    # --- (ВРЕМЕННАЯ ЗАГЛУШКА) ---
+    # (Пока нет таймера, просто ждем 15 сек и завершаем игру)
+    await asyncio.sleep(15)
+    logging.warning(f"[Mafia {chat_id}] ВРЕМЕННАЯ ЗАГЛУШКА: Ночь закончилась.")
+    if chat_id in active_games:
+        del active_games[chat_id]
+    if chat_id in active_game_managers:
+        del active_game_managers[chat_id]
+    await db.delete_mafia_game(chat_id)
+    await bot.send_message(chat_id, "<i>(ВРЕМЕННАЯ ЗАГЛУШКА: Ночь 1 завершена. Игра окончена.)</i>")
+    # --- (КОНЕЦ ЗАГЛУШКИ) ---
+
+
+# --- ХЭНДЛЕРЫ НОЧНОЙ ФАЗЫ ---
+
+@mafia_game_router.callback_query(MafiaNightVoteCallbackData.filter(), StateFilter("*"))
+async def cq_mafia_night_vote(callback: CallbackQuery, callback_data: MafiaNightVoteCallbackData, bot: Bot):
+    """
+    Обрабатывает ВСЕ ночные голоса (убийство, проверка, лечение).
+    """
+    chat_id = callback.message.chat.id # Это ЛС, но нам нужен ID игры
+    user_id = callback.from_user.id
+    
+    # Находим ID игры (это хак, т.к. колбэк приходит из ЛС)
+    # Нам нужно найти, в какой игре состоит этот user_id
+    game_id = None
+    game_manager = None
+    for chat_id_key, game in active_game_managers.items():
+        if user_id in game.players:
+            game_id = chat_id_key
+            game_manager = game
+            break
+            
+    if not game_manager:
+        await callback.answer("Не удалось найти вашу активную игру.", show_alert=True)
+        return
+
+    # Проверяем, жив ли игрок
+    if not game_manager.players[user_id]['is_alive']:
+        await callback.answer("Мертвые не голосуют.", show_alert=True)
+        return
+
+    action = callback_data.action
+    target_user_id = callback_data.target_user_id
+    target_name = game_manager.players[target_user_id]['name']
+    
+    # 1. Обработка голоса Мафии
+    if action == "kill":
+        game_manager.night_votes['kill'][user_id] = target_user_id
+        await callback.message.edit_text(f"✅ Ваш голос принят: 'пролить' <b>{target_name}</b>.", parse_mode="HTML")
+        
+        # --- Анонс для команды мафии ---
+        voter_name = game_manager.players[user_id]['name']
+        tasks = []
+        for mafia_id in game_manager.get_alive_players(MAFIA_TEAM_ROLES):
+            if mafia_id != user_id: # Не отправляем самому себе
+                tasks.append(
+                    bot.send_message(mafia_id, f"🗳️ *{voter_name}* предлагает выгнать *{target_name}*.")
+                )
+        await asyncio.gather(*tasks)
+
+    # 2. Обработка хода Детектива
+    elif action == "check":
+        game_manager.night_votes['check'][user_id] = target_user_id
+        await callback.message.edit_text(f"✅ Вы решили проверить <b>{target_name}</b>. Ожидайте рассвета...", parse_mode="HTML")
+
+    # 3. Обработка хода Доктора (обычное лечение)
+    elif action == "heal":
+        game_manager.night_votes['heal'][user_id] = target_user_id
+        await callback.message.edit_text(f"✅ Вы решили спасти <b>{target_name}</b>. Ожидайте рассвета...", parse_mode="HTML")
+
+    # 4. Обработка хода Доктора (самолечение)
+    elif action == "self_heal":
+        # Проверяем, не использовал ли он его уже (на всякий случай)
+        player_data = await game_manager.db.get_mafia_player(game_id, user_id)
+        if player_data[4] > 0:
+             await callback.answer("Вы уже использовали самолечение!", show_alert=True)
+             return
+             
+        # Записываем голос и обновляем БД
+        game_manager.night_votes['heal'][user_id] = user_id
+        await game_manager.db.set_mafia_player_self_heal(game_id, user_id) # (Нам нужна эта функция в DB)
+        
+        await callback.message.edit_text(
+            f"✅ Вы использовали свое <b>единственное самолечение</b>. "
+            f"Больше вы себя спасти не можете. Ожидайте рассвета...",
+            parse_mode="HTML"
+        )
+    
+    await callback.answer()
+
+
+@mafia_game_router.message(MafiaGameStates.night_voting)
+async def handle_mafia_chat(message: Message, bot: Bot, state: FSMContext):
+    """
+    Обрабатывает ТАЙНЫЙ ЧАТ Мафии.
+    Пересылает сообщение всем живым членам команды.
+    """
+    user_id = message.from_user.id
+    
+    # 1. Находим игру
+    game_id = None
+    game_manager = None
+    for chat_id_key, game in active_game_managers.items():
+        if user_id in game.players:
+            game_id = chat_id_key
+            game_manager = game
+            break
+    if not game_manager: return
+
+    # 2. Проверяем, жив ли
+    if not game_manager.players[user_id]['is_alive']:
+        await state.clear() # Мертвый не должен быть в этом FSM
+        return
+        
+    # 3. Готовим и рассылаем сообщение
+    role = game_manager.players[user_id]['role']
+    prefix = "🥤 (Главарь)" if role == ROLE_MAFIA_LEADER else "🥤"
+    sender_name = game_manager.players[user_id]['name']
+    
+    text_to_send = f"💬 <b>{sender_name} {prefix}:</b>\n{html.quote(message.text)}"
+    
+    tasks = []
+    for mafia_id in game_manager.get_alive_players(MAFIA_TEAM_ROLES):
+        if mafia_id != user_id: # Не отправляем самому себе
+            tasks.append(
+                bot.send_message(mafia_id, text_to_send, parse_mode="HTML")
+            )
+            
+    await asyncio.gather(*tasks)
+
+
+# --- ХЭНДЛЕРЫ МОДЕРАЦИИ ---
+
+@mafia_game_router.message(StateFilter(MafiaGameStates.game_in_progress))
+async def handle_game_moderation(message: Message, bot: Bot):
+    """
+    УДАЛЯЕТ все сообщения в группе, пока идет игра.
+    (Этот хэндлер будет работать, только если мы включим FSM для *чата*)
+    
+    ПЛАН Б: Если FSM для чата не сработает, мы будем использовать
+    проверку 'if chat_id in active_game_managers'
+    """
+    pass # (Пока заглушка)
+
+
+@mafia_game_router.message(F.chat.type.in_({'group', 'supergroup'}))
+async def handle_game_moderation_global(message: Message, bot: Bot):
+    """
+    УДАЛЯЕТ все сообщения в группе, пока идет игра.
+    (Проверяет по словарю 'active_game_managers')
+    """
+    chat_id = message.chat.id
+    if chat_id in active_game_managers:
+        game_status = (await active_game_managers[chat_id].db.get_mafia_game(chat_id))[3]
+        
+        # --- МОДЕРАЦИЯ НОЧИ ---
+        if game_status.startswith('night'):
+            with suppress(TelegramBadRequest):
+                await message.delete()
+            # (Тут можно добавить логику мута за повтор)
+            
+        # --- МОДЕРАЦИЯ ДНЯ (Обсуждение) ---
+        elif game_status.startswith('day') and message.content_type != 'text':
+             with suppress(TelegramBadRequest):
+                await message.delete()
+        
+        # --- МОДЕРАЦИЯ ДНЯ (Голосование) ---
+        elif game_status.startswith('vote'):
+            game = active_game_managers[chat_id]
+            if not game.players[message.from_user.id]['is_alive']:
+                 with suppress(TelegramBadRequest):
+                    await message.delete() # Удаляем мертвых
+            elif message.content_type != 'text':
+                 with suppress(TelegramBadRequest):
+                    await message.delete() # Удаляем медиа
