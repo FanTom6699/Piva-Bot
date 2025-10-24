@@ -82,7 +82,6 @@ class Database:
                 ('raid_strong_hit_cost', 100), ('raid_strong_hit_damage_min', 500),
                 ('raid_strong_hit_damage_max', 1000), ('raid_normal_hit_damage_min', 10),
                 ('raid_normal_hit_damage_max', 50), ('raid_reminder_hours', 6),
-                # --- НОВЫЕ НАСТРОЙКИ ДЛЯ МАФИИ ---
                 ('mafia_lobby_timer', 90),
                 ('mafia_min_players', 5),
                 ('mafia_max_players', 10),
@@ -285,7 +284,6 @@ class Database:
             except aiosqlite.IntegrityError:
                 return False
     
-    # --- НОВАЯ ФУНКЦИЯ ---
     async def update_mafia_game_message_id(self, chat_id: int, message_id: int):
         """Обновляет message_id для лобби (после того как мы его отправили)."""
         async with aiosqlite.connect(self.db_name) as db:
@@ -317,8 +315,15 @@ class Database:
     async def get_mafia_players(self, chat_id: int) -> List[Tuple]:
         """Получает список всех игроков в конкретной игре Мафии."""
         async with aiosqlite.connect(self.db_name) as db:
-            cursor = await db.execute("SELECT * FROM mafia_players WHERE game_id = ?", (chat_id,))
+            # Сортируем по rowid, чтобы сохранить порядок добавления (полезно для лобби)
+            cursor = await db.execute("SELECT * FROM mafia_players WHERE game_id = ? ORDER BY rowid", (chat_id,))
             return await cursor.fetchall()
+            
+    async def get_mafia_player(self, chat_id: int, user_id: int) -> Tuple:
+        """Получает ОДНОГО игрока в игре."""
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT * FROM mafia_players WHERE game_id = ? AND user_id = ?", (chat_id, user_id))
+            return await cursor.fetchone()
 
     async def get_mafia_player_count(self, chat_id: int) -> int:
         """Считает, сколько игроков в лобби."""
@@ -379,3 +384,25 @@ class Database:
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute("SELECT first_name, last_name, username FROM users WHERE user_id = ?", (user_id,))
             return await cursor.fetchone()
+
+    # --- НОВЫЕ ФУНКЦИИ ДЛЯ ЯДРА ИГРЫ ---
+    async def update_mafia_game_status(self, chat_id: int, status: str, day_count: int = -1):
+        """Обновляет статус игры (lobby, night_1, day_2, ...)"""
+        async with aiosqlite.connect(self.db_name) as db:
+            if day_count == -1:
+                await db.execute("UPDATE mafia_games SET status = ? WHERE chat_id = ?", (status, chat_id))
+            else:
+                await db.execute("UPDATE mafia_games SET status = ?, day_count = ? WHERE chat_id = ?", (status, day_count, chat_id))
+            await db.commit()
+            
+    async def update_mafia_player_role(self, chat_id: int, user_id: int, role: str):
+        """Присваивает роль игроку."""
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("UPDATE mafia_players SET role = ? WHERE game_id = ? AND user_id = ?", (role, chat_id, user_id))
+            await db.commit()
+
+    async def set_mafia_player_alive(self, chat_id: int, user_id: int, is_alive: bool = False):
+        """'Убивает' или 'воскрешает' игрока."""
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("UPDATE mafia_players SET is_alive = ? WHERE game_id = ? AND user_id = ?", (1 if is_alive else 0, chat_id, user_id))
+            await db.commit()
