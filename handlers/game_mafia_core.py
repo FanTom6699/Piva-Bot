@@ -12,7 +12,7 @@ from contextlib import suppress
 from typing import Dict, List, Set, Any
 from collections import Counter
 
-from aiogram.filters import StateFilter # <-- ВОТ ЭТА СТРОКА
+from aiogram.filters import StateFilter # <-- ИСПРАВЛЕННЫЙ ИМПОРТ
 
 from database import Database
 from settings import SettingsManager
