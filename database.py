@@ -406,3 +406,10 @@ class Database:
         async with aiosqlite.connect(self.db_name) as db:
             await db.execute("UPDATE mafia_players SET is_alive = ? WHERE game_id = ? AND user_id = ?", (1 if is_alive else 0, chat_id, user_id))
             await db.commit()
+
+    # --- НОВАЯ ФУНКЦИЯ ---
+    async def set_mafia_player_self_heal(self, chat_id: int, user_id: int):
+        """Отмечает, что доктор использовал самолечение."""
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute("UPDATE mafia_players SET self_heals_used = 1 WHERE game_id = ? AND user_id = ?", (chat_id, user_id))
+            await db.commit()
