@@ -8,7 +8,7 @@ from .user_commands import user_router
 from .game_raid import raid_router
 # --- ИМПОРТЫ МАФИИ ---
 from .game_mafia_lobby import mafia_lobby_router
-from .game_mafia_core import mafia_game_router # <-- НОВЫЙ ИМПОРТ
+# from .game_mafia_core import mafia_game_router # <-- НОВЫЙ ИМПОРТ
 
 # Создаем главный роутер
 main_router = Router()
