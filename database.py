@@ -393,7 +393,7 @@ class Database:
             cursor = await db.execute("SELECT first_name, last_name, username FROM users WHERE user_id = ?", (user_id,))
             return await cursor.fetchone()
 
-    # --- НОВЫЕ ФУНКЦИИ ДЛЯ ЯДРА ИГРЫ ---
+    # --- ФУНКЦИИ ДЛЯ ЯДРА ИГРЫ ---
     async def update_mafia_game_status(self, chat_id: int, status: str, day_count: int = -1):
         """Обновляет статус игры (lobby, night_1, day_2, ...)"""
         async with aiosqlite.connect(self.db_name) as db:
@@ -421,7 +421,6 @@ class Database:
             await db.execute("UPDATE mafia_players SET self_heals_used = 1 WHERE game_id = ? AND user_id = ?", (chat_id, user_id))
             await db.commit()
             
-    # --- НОВЫЕ ФУНКЦИИ ---
     async def increment_mafia_player_inactive(self, chat_id: int, user_id: int):
         """Добавляет +1 к счетчику неактивных ночей."""
         async with aiosqlite.connect(self.db_name) as db:
