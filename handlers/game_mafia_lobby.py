@@ -6,25 +6,21 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command, StateFilter
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+# --- FSM (StatesGroup) УБРАН ОТСЮДА ---
 from aiogram.exceptions import TelegramBadRequest
 from contextlib import suppress
 
-import config # <-- ДОБАВЛЕН ИМПОРТ
+import config
 from database import Database
 from settings import SettingsManager
 from utils import active_lobby_timers, format_time_left
 
 # Импортируем проверку на 'Рулетку' и 'Лесенку'
 from .user_commands import is_game_active, active_games, GAME_ACTIVE_KEY
+# --- НОВЫЙ ИМПОРТ FSM ИЗ ЯДРА ---
+from .game_mafia_core import MafiaGameStates
 
 mafia_lobby_router = Router()
-
-# --- FSM (понадобится для "Последнего слова" в следующем файле) ---
-class MafiaGameStates(StatesGroup):
-    game_in_progress = State() # Общее состояние игры
-    awaiting_last_word = State() # Состояние для убитого
-    night_voting = State() # Состояние для чата мафии
 
 # --- CallbackData ---
 class MafiaLobbyCallbackData(CallbackData, prefix="mafia_lobby"):
@@ -125,7 +121,7 @@ async def lobby_timer_task(chat_id: int, bot: Bot, db: Database, settings: Setti
         time_left_str = format_time_left(time_left_approx)
 
         text, keyboard = await generate_lobby_text_and_keyboard(db, settings, chat_id, creator_id, True)
-        text = text.replace(f"~{format_time_left(lobby_duration)}", f"~{time_left_str}")
+        text = text.replace(f"~{format_time_left(settings.mafia_lobby_timer)}", f"~{time_left_str}")
         
         with suppress(TelegramBadRequest):
             await bot.edit_message_text(text, chat_id, message_id, reply_markup=keyboard, parse_mode="HTML")
@@ -211,14 +207,10 @@ async def start_mafia_game(chat_id: int, bot: Bot, db: Database, settings: Setti
         return
 
     # --- ВЫЗЫВАЕМ ЯДРО ИГРЫ ---
-    # (Заглушка "Игра в разработке" УБРАНА)
     try:
         from .game_mafia_core import distribute_roles_and_start
         
-        # Передаем bot, db, settings и список игроков (tuples из БД)
         await distribute_roles_and_start(chat_id, bot, db, settings, players)
-        
-        # Сообщение в лобби будет отредактировано ядром игры
         
     except Exception as e:
         logging.error(f"[Mafia {chat_id}] КРИТИЧЕСКАЯ ОШИБКА при запуске ядра игры: {e}")
