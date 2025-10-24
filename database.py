@@ -270,8 +270,7 @@ class Database:
             cursor = await db.execute("SELECT user_id, damage_dealt FROM raid_participants WHERE raid_id = ? ORDER BY damage_dealt DESC", (chat_id,))
             return await cursor.fetchall()
 
-    # --- НОВЫЕ ФУНКЦИИ ДЛЯ МАФИИ ---
-
+    # --- ФУНКЦИИ ДЛЯ МАФИИ ---
     async def create_mafia_game(self, chat_id: int, message_id: int, creator_id: int, status: str = 'lobby') -> bool:
         """Создает новую игру в Мафию в чате."""
         async with aiosqlite.connect(self.db_name) as db:
@@ -280,12 +279,10 @@ class Database:
                     "INSERT INTO mafia_games (chat_id, message_id, creator_id, status, start_time) VALUES (?, ?, ?, ?, ?)",
                     (chat_id, message_id, creator_id, status, datetime.now().isoformat())
                 )
-                # Удаляем всех "старых" игроков из прошлой игры в этом чате, если они зависли
                 await db.execute("DELETE FROM mafia_players WHERE game_id = ?", (chat_id,))
                 await db.commit()
                 return True
             except aiosqlite.IntegrityError:
-                # Игра в этом чате уже существует
                 return False
 
     async def get_mafia_game(self, chat_id: int):
@@ -302,7 +299,7 @@ class Database:
                 await db.commit()
                 return True
             except aiosqlite.IntegrityError:
-                return False # Игрок уже в игре
+                return False 
 
     async def remove_mafia_player(self, chat_id: int, user_id: int):
         """Удаляет игрока из лобби Мафии."""
@@ -368,4 +365,11 @@ class Database:
                 "SELECT mafia_authority, mafia_games, mafia_wins FROM users WHERE user_id = ?",
                 (user_id,)
             )
+            return await cursor.fetchone()
+
+    # --- НОВАЯ ФУНКЦИЯ ---
+    async def get_user_by_id(self, user_id: int):
+        """Получает базовые данные пользователя (имя) по ID."""
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT first_name, last_name, username FROM users WHERE user_id = ?", (user_id,))
             return await cursor.fetchone()
