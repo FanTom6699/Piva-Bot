@@ -18,7 +18,6 @@ from .game_raid import start_raid_event # Импортируем функцию 
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 admin_router = Router()
-# db = Database(...) # Убрали. Будем получать из main.py
 
 # --- FSM СОСТОЯНИЯ ---
 class AdminStates(StatesGroup):
@@ -45,7 +44,6 @@ class AdminRaidCallbackData(CallbackData, prefix="admin_raid"):
     chat_id: int = 0
     page: int = 0
 
-
 # --- Вспомогательные функции для меню ---
 async def get_main_admin_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -64,6 +62,7 @@ async def get_settings_menu(settings_manager: SettingsManager) -> (str, InlineKe
     )
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        # --- Существующие кнопки ---
         [InlineKeyboardButton(text="Кулдаун /beer", callback_data=AdminSettingsCallbackData(setting_key="beer_cooldown").pack())],
         [InlineKeyboardButton(text="Шанс Джекпота (1 к X)", callback_data=AdminSettingsCallbackData(setting_key="jackpot_chance").pack())],
         [InlineKeyboardButton(text="Кулдаун Рулетки", callback_data=AdminSettingsCallbackData(setting_key="roulette_cooldown").pack())],
@@ -75,6 +74,31 @@ async def get_settings_menu(settings_manager: SettingsManager) -> (str, InlineKe
             InlineKeyboardButton(text="Мин. Лесенка", callback_data=AdminSettingsCallbackData(setting_key="ladder_min_bet").pack()),
             InlineKeyboardButton(text="Макс. Лесенка", callback_data=AdminSettingsCallbackData(setting_key="ladder_max_bet").pack())
         ],
+        
+        # --- НОВЫЕ КНОПКИ ДЛЯ МАФИИ ---
+        [InlineKeyboardButton(text="--- 🎲 Настройки Мафии 🎲 ---", callback_data="do_nothing")],
+        [
+            InlineKeyboardButton(text="Мин. игроков", callback_data=AdminSettingsCallbackData(setting_key="mafia_min_players").pack()),
+            InlineKeyboardButton(text="Макс. игроков", callback_data=AdminSettingsCallbackData(setting_key="mafia_max_players").pack())
+        ],
+        [
+            InlineKeyboardButton(text="Таймер Лобби", callback_data=AdminSettingsCallbackData(setting_key="mafia_lobby_timer").pack()),
+            InlineKeyboardButton(text="Таймер Ночи", callback_data=AdminSettingsCallbackData(setting_key="mafia_night_timer").pack())
+        ],
+        [
+            InlineKeyboardButton(text="Таймер Дня", callback_data=AdminSettingsCallbackData(setting_key="mafia_day_timer").pack()),
+            InlineKeyboardButton(text="Таймер Голос.", callback_data=AdminSettingsCallbackData(setting_key="mafia_vote_timer").pack())
+        ],
+        [
+            InlineKeyboardButton(text="Награда (Победа)", callback_data=AdminSettingsCallbackData(setting_key="mafia_win_reward").pack()),
+            InlineKeyboardButton(text="Авторитет (Победа)", callback_data=AdminSettingsCallbackData(setting_key="mafia_win_authority").pack())
+        ],
+        [
+            InlineKeyboardButton(text="Награда (Утеш.)", callback_data=AdminSettingsCallbackData(setting_key="mafia_lose_reward").pack()),
+            InlineKeyboardButton(text="Авторитет (Пораж.)", callback_data=AdminSettingsCallbackData(setting_key="mafia_lose_authority").pack())
+        ],
+        
+        # --- Назад ---
         [InlineKeyboardButton(text="⬅️ Назад в админ-меню", callback_data=AdminCallbackData(action="main_admin_menu").pack())]
     ])
     return text, keyboard
@@ -83,6 +107,7 @@ async def get_events_menu() -> (str, InlineKeyboardMarkup):
     text = "<b>⚔️ Управление Ивентами</b>\n\nВыберите ивент для настройки или запуска:"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👹 Вышибала (Рейд-Босс)", callback_data=AdminRaidCallbackData(action="menu").pack())],
+        [InlineKeyboardButton(text="🎲 Мафия 'Пивной Переполох'", callback_data="do_nothing")], # Позже добавим сюда управление
         [InlineKeyboardButton(text="⬅️ Назад в админ-меню", callback_data=AdminCallbackData(action="main_admin_menu").pack())]
     ])
     return text, keyboard
@@ -156,9 +181,17 @@ async def cq_admin_select_setting(callback: CallbackQuery, callback_data: AdminS
 
 @admin_router.message(AdminStates.waiting_for_setting_value, IsAdmin())
 async def process_setting_value(message: Message, state: FSMContext, db: Database, settings: SettingsManager):
-    if not message.text or not message.text.isdigit():
+    # Разрешаем отрицательные значения для 'mafia_lose_authority'
+    is_negative_allowed = (await state.get_data()).get('setting_key') == 'mafia_lose_authority'
+    
+    value_to_check = message.text
+    if is_negative_allowed:
+        value_to_check = message.text.lstrip('-')
+
+    if not value_to_check or not value_to_check.isdigit():
         await message.reply("Ошибка. Введите целое число. Или /cancel.")
         return
+        
     new_value = int(message.text)
     data = await state.get_data()
     setting_key = data.get('setting_key')
@@ -174,7 +207,7 @@ async def process_setting_value(message: Message, state: FSMContext, db: Databas
     except Exception as e:
         await message.answer(f"Ошибка при обновлении: {e}")
 
-# --- Обработчики меню ивентов ---
+# --- Обработчики меню ивентов (Рейд) ---
 CHATS_PER_PAGE = 5
 
 @admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "menu"), IsAdmin())
@@ -319,21 +352,26 @@ async def admin_leave_chat(message: Message, bot: Bot):
 
 @admin_router.message(Command("settings"), IsAdmin())
 async def cmd_show_settings(message: Message, settings: SettingsManager):
-    await show_settings_menu(message, settings)
+    text, keyboard = await get_settings_menu(settings)
+    await message.answer(text, reply_markup=keyboard, parse_mode='HTML')
 
 @admin_router.message(Command("set"), IsAdmin())
 async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: SettingsManager):
     args = message.text.split()
     if len(args) != 3:
+        # --- ОБНОВЛЕННЫЙ СПИСОК КЛЮЧЕЙ В СООБЩЕНИИ ОБ ОШИБКЕ ---
         await message.reply("Неверный формат. Используйте: <code>/set &lt;ключ&gt; &lt;значение&gt;</code>\n"
                             "Пример: <code>/set beer_cooldown 3600</code>\n\n"
-                            "Доступные ключи:\n"
+                            "<b>Доступные ключи:</b>\n"
                             "<code>beer_cooldown, jackpot_chance, roulette_cooldown, "
                             "roulette_min_bet, roulette_max_bet, ladder_min_bet, ladder_max_bet, "
                             "raid_boss_health, raid_reward_pool, raid_duration_hours, raid_hit_cooldown_minutes, "
                             "raid_strong_hit_cost, raid_strong_hit_damage_min, raid_strong_hit_damage_max, "
-                            "raid_normal_hit_damage_min, raid_normal_hit_damage_max, raid_reminder_hours</code>",
-                            parse_mode='HTML')
+                            "raid_normal_hit_damage_min, raid_normal_hit_damage_max, raid_reminder_hours, "
+                            "mafia_lobby_timer, mafia_min_players, mafia_max_players, mafia_night_timer, "
+                            "mafia_day_timer, mafia_vote_timer, mafia_win_reward, mafia_lose_reward, "
+                            "mafia_win_authority, mafia_lose_authority</code>",
+                            parse_mode='HTML', disable_web_page_preview=True)
         return
 
     key, value = args[1], args[2]
@@ -341,8 +379,13 @@ async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: Se
     if not hasattr(settings, key):
         await message.reply(f"Ошибка: Неизвестный ключ настройки '<code>{key}</code>'.")
         return
-        
-    if not value.isdigit():
+    
+    # Разрешаем отрицательные значения для 'mafia_lose_authority'
+    value_to_check = value
+    if key == 'mafia_lose_authority':
+        value_to_check = value.lstrip('-')
+
+    if not value_to_check.isdigit():
         await message.reply("Ошибка: Значение должно быть целым числом.")
         return
         
