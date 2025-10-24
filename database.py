@@ -324,6 +324,14 @@ class Database:
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute("SELECT * FROM mafia_players WHERE game_id = ? AND user_id = ?", (chat_id, user_id))
             return await cursor.fetchone()
+            
+    async def get_mafia_players_by_role(self, chat_id: int, roles: List[str], is_alive: bool = True) -> List[Tuple]:
+        """Получает игроков с указанными ролями."""
+        query = f"SELECT * FROM mafia_players WHERE game_id = ? AND is_alive = ? AND role IN ({','.join('?' for _ in roles)})"
+        params = [chat_id, 1 if is_alive else 0] + roles
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute(query, params)
+            return await cursor.fetchall()
 
     async def get_mafia_player_count(self, chat_id: int) -> int:
         """Считает, сколько игроков в лобби."""
@@ -407,9 +415,27 @@ class Database:
             await db.execute("UPDATE mafia_players SET is_alive = ? WHERE game_id = ? AND user_id = ?", (1 if is_alive else 0, chat_id, user_id))
             await db.commit()
 
-    # --- НОВАЯ ФУНКЦИЯ ---
     async def set_mafia_player_self_heal(self, chat_id: int, user_id: int):
         """Отмечает, что доктор использовал самолечение."""
         async with aiosqlite.connect(self.db_name) as db:
             await db.execute("UPDATE mafia_players SET self_heals_used = 1 WHERE game_id = ? AND user_id = ?", (chat_id, user_id))
+            await db.commit()
+            
+    # --- НОВЫЕ ФУНКЦИИ ---
+    async def increment_mafia_player_inactive(self, chat_id: int, user_id: int):
+        """Добавляет +1 к счетчику неактивных ночей."""
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute(
+                "UPDATE mafia_players SET inactive_nights_count = inactive_nights_count + 1 "
+                "WHERE game_id = ? AND user_id = ?", (chat_id, user_id)
+            )
+            await db.commit()
+            
+    async def reset_mafia_player_inactive(self, chat_id: int, user_id: int):
+        """Сбрасывает счетчик неактивных ночей на 0."""
+        async with aiosqlite.connect(self.db_name) as db:
+            await db.execute(
+                "UPDATE mafia_players SET inactive_nights_count = 0 "
+                "WHERE game_id = ? AND user_id = ?", (chat_id, user_id)
+            )
             await db.commit()
