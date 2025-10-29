@@ -11,14 +11,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
 
-import config
-from database import Database
-from settings import SettingsManager
+# ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
+from .. import config
+from ..database import Database
+from ..settings import SettingsManager
 from .game_raid import start_raid_event # Импортируем функцию запуска
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 admin_router = Router()
-# db = Database(...) # Убрали. Будем получать из main.py
 
 # --- FSM СОСТОЯНИЯ ---
 class AdminStates(StatesGroup):
