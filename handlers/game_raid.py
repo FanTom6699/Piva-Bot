@@ -12,9 +12,9 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.exceptions import TelegramBadRequest
 
 # ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
-from ..database import Database
-from ..settings import SettingsManager
-from .common import check_user_registered
+from database import Database
+from settings import SettingsManager
+from common import check_user_registered
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 raid_router = Router()
