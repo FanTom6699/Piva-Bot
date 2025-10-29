@@ -7,10 +7,10 @@ from aiogram.types import Message
 from aiogram.filters import Command
 
 # ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
-from ..database import Database
-from ..settings import SettingsManager
-from .common import check_user_registered
-from ..utils import format_time_delta
+from database import Database
+from settings import SettingsManager
+from common import check_user_registered
+from utils import format_time_delta
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 user_commands_router = Router()
