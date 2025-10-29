@@ -17,7 +17,7 @@ from aiogram.exceptions import TelegramBadRequest
 from import config
 from database import Database
 from settings import SettingsManager
-from common import check_user_registered
+from .common import check_user_registered
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 ladder_router = Router()
