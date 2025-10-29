@@ -4,7 +4,7 @@ from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeybo
 from aiogram.filters import CommandStart, Command
 
 # ИСПРАВЛЕННЫЙ ИМПОРТ (добавлены ..)
-from ..database import Database
+from database import Database
 
 common_router = Router()
 
