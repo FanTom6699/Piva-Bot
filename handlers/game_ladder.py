@@ -14,7 +14,7 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.exceptions import TelegramBadRequest
 
 # ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
-from import config
+import config
 from database import Database
 from settings import SettingsManager
 from .common import check_user_registered
