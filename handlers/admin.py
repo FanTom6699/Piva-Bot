@@ -12,10 +12,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
 
 # ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
-from .. import config
-from ..database import Database
-from ..settings import SettingsManager
-from .game_raid import start_raid_event # Импортируем функцию запуска
+from import config
+from database import Database
+from settings import SettingsManager
+from game_raid import start_raid_event # Импортируем функцию запуска
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 admin_router = Router()
