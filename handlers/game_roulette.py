@@ -11,10 +11,11 @@ from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
 from aiogram.exceptions import TelegramBadRequest
 
-from database import Database
-from settings import SettingsManager
+# ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
+from ..database import Database
+from ..settings import SettingsManager
 from .common import check_user_registered
-from utils import format_time_delta
+from ..utils import format_time_delta
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 roulette_router = Router()
