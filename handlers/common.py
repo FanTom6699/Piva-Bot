@@ -2,7 +2,9 @@
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command
-from database import Database
+
+# ИСПРАВЛЕННЫЙ ИМПОРТ (добавлены ..)
+from ..database import Database
 
 common_router = Router()
 
