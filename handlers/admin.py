@@ -5,12 +5,12 @@ from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from database import Database
-from settings import SettingsManager, SETTINGS_KEYS
+# --- ИСПРАВЛЕНИЕ 1: Убираем 'SETTINGS_KEYS' из импорта ---
+from settings import SettingsManager
 
 admin_router = Router()
 
 # --- ФИЛЬТР АДМИНА ---
-# (Оставляем твой фильтр как есть, он отличный)
 class AdminFilter:
     def __init__(self, db: Database):
         self.db = db
@@ -20,7 +20,7 @@ class AdminFilter:
 # --- КОМАНДЫ АДМИНОВ ---
 @admin_router.message(Command("admin"), AdminFilter)
 async def cmd_admin(message: Message):
-    # --- ИЗМЕНЕНИЕ 1: Приветствие админа ---
+    # (Тексты, которые мы поменяли, остаются)
     await message.answer(
         "🔧 <b>Админ-панель 'Пивной'</b> 🔧\n\n"
         "Добро пожаловать, босс. Что настраиваем?\n\n"
@@ -35,9 +35,11 @@ async def cmd_admin(message: Message):
 async def cmd_set(message: Message, db: Database, settings: SettingsManager):
     args = message.text.split()
     if len(args) < 3:
-        keys_list = "\n".join(f"• <code>{k}</code> ({v.get('type', 'str')}) - {v.get('desc', 'N/A')}" for k, v in SETTINGS_KEYS.items())
         
-        # --- ИЗМЕНЕНИЕ 2: Текст подсказки /set ---
+        # --- ИСПРАВЛЕНИЕ 2: Получаем SETTINGS_KEYS из 'settings', а не из импорта ---
+        keys_list = "\n".join(f"• <code>{k}</code> ({v.get('type', 'str')}) - {v.get('desc', 'N/A')}" for k, v in settings.SETTINGS_KEYS.items())
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ 2 ---
+        
         return await message.answer(
             "⚙️ <b>Настройка баланса (SET)</b>\n"
             "<code>/set &lt;ключ&gt; &lt;значение&gt;</code>\n\n"
@@ -51,7 +53,6 @@ async def cmd_set(message: Message, db: Database, settings: SettingsManager):
 
     try:
         await settings.set(key, value_str)
-        # --- ИЗМЕНЕНИЕ 3: Текст успеха /set ---
         await message.answer(
             f"✅ <b>Настройка сохранена!</b>\n"
             f"<code>{key}</code> = <code>{html.escape(value_str)}</code>",
@@ -64,7 +65,6 @@ async def cmd_set(message: Message, db: Database, settings: SettingsManager):
 async def cmd_give(message: Message, db: Database):
     args = message.text.split()
     if len(args) < 3:
-        # --- ИЗМЕНЕНИЕ 4: Текст подсказки /give ---
         return await message.answer(
             "🎁 <b>Выдача 'Пива' (GIVE)</b>\n"
             "<code>/give &lt;user_id&gt; &lt;кол-во&gt;</code>\n\n"
@@ -83,7 +83,6 @@ async def cmd_give(message: Message, db: Database):
 
     await db.update_user_beer_rating(user_id, amount)
     
-    # --- ИЗМЕНЕНИЕ 5: Текст успеха /give ---
     await message.answer(
         f"🍻 <b>Угощение выдано!</b>\n"
         f"<b>{amount} 🍺</b> отправлено игроку <code>{user_id}</code>.",
@@ -116,7 +115,6 @@ async def cmd_stats(message: Message, db: Database):
 async def cmd_reload_settings(message: Message, settings: SettingsManager):
     try:
         await settings.load_settings()
-        # --- ИЗМЕНЕНИЕ 6: Текст перезагрузки настроек ---
         await message.answer(
             "🔄 <b>Настройки из БД перезагружены!</b>\n"
             "Все 'краны' работают по-новому."
