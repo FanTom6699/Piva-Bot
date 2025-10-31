@@ -13,7 +13,6 @@ from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
 from aiogram.exceptions import TelegramBadRequest
 
-# ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
 import config
 from database import Database
 from settings import SettingsManager
@@ -212,8 +211,15 @@ async def cmd_ladder(message: Message, bot: Bot, db: Database, settings: Setting
     if chat_id in active_ladder_games:
         return await message.reply("Пожалуйста, подождите, пока текущая игра в 'Лесенку' в этом чате не закончится.")
     args = message.text.split()
+    
+    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
     if len(args) != 2 or not args[1].isdigit():
-        return await message.reply("Неверный формат. Используйте: `/ladder <ставка>` (например, `/ladder 10`).")
+        # Мы экранировали <ставка> и обернули команды в <code>
+        return await message.reply(
+            "Неверный формат. Используйте: <code>/ladder &lt;ставка&gt;</code> (например, <code>/ladder 10</code>).",
+            parse_mode='HTML'
+        )
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     
     stake = int(args[1])
     min_bet = settings.ladder_min_bet
