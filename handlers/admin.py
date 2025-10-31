@@ -11,7 +11,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
 
-# ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
 import config
 from database import Database
 from settings import SettingsManager
@@ -19,6 +18,7 @@ from .game_raid import start_raid_event # Импортируем функцию 
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 admin_router = Router()
+# db = Database(...) # Убрали. Будем получать из main.py
 
 # --- FSM СОСТОЯНИЯ ---
 class AdminStates(StatesGroup):
@@ -324,7 +324,10 @@ async def cmd_show_settings(message: Message, settings: SettingsManager):
 @admin_router.message(Command("set"), IsAdmin())
 async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: SettingsManager):
     args = message.text.split()
+    
+    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
     if len(args) != 3:
+        # Экранируем <ключ> и <значение>
         await message.reply("Неверный формат. Используйте: <code>/set &lt;ключ&gt; &lt;значение&gt;</code>\n"
                             "Пример: <code>/set beer_cooldown 3600</code>\n\n"
                             "Доступные ключи:\n"
@@ -335,6 +338,7 @@ async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: Se
                             "raid_normal_hit_damage_min, raid_normal_hit_damage_max, raid_reminder_hours</code>",
                             parse_mode='HTML')
         return
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     key, value = args[1], args[2]
 
