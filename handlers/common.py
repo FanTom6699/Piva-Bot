@@ -2,8 +2,6 @@
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command
-
-# ИСПРАВЛЕННЫЙ ИМПОРТ (добавлены ..)
 from database import Database
 
 common_router = Router()
@@ -44,6 +42,8 @@ async def cmd_start(message: Message, db: Database):
     user = message.from_user
     if not await db.user_exists(user.id):
         await db.add_user(user.id, user.first_name, user.last_name, user.username)
+        
+        # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
         welcome_text = (
             f"Привет, {user.full_name}! 👋\n"
             f"Добро пожаловать в наш пивной клуб! Твой начальный рейтинг: 0 🍺.\n\n"
@@ -51,10 +51,14 @@ async def cmd_start(message: Message, db: Database):
             f"• <code>/beer</code> - Испытать удачу (раз в 2 часа).\n"
             f"• <code>/top</code> - Показать таблицу лидеров.\n"
             f"• <code>/jackpot</code> - Проверить текущий джекпот.\n"
+            # Было: /roulette <ставка> <игроки>
             f"• <code>/roulette &lt;ставка&gt; &lt;игроки&gt;</code> - Запустить 'Пивную рулетку'.\n"
+            # Было: /ladder <ставка>
             f"• <code>/ladder &lt;ставка&gt;</code> - Начать игру в 'Пивную лесенку'.\n"
             f"• <code>/help</code> - Показать эту справку."
         )
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+        
         await message.answer(welcome_text, parse_mode='HTML')
     else:
         rating = await db.get_user_beer_rating(user.id)
@@ -62,6 +66,8 @@ async def cmd_start(message: Message, db: Database):
 
 @common_router.message(Command("help"))
 async def cmd_help(message: Message):
+    
+    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
     help_text = (
         "<b>🍻 Справка по командам бота 🍻</b>\n\n"
         "Здесь собраны все доступные команды и их описание.\n\n"
@@ -73,12 +79,16 @@ async def cmd_help(message: Message):
         "• <code>/jackpot</code> - Проверить текущий джекпот.\n\n"
         "--- --- ---\n"
         "<b>Мини-игры</b>\n"
+        # Было: /roulette <ставка> <игроки>
         "• <code>/roulette &lt;ставка&gt; &lt;игроки&gt;</code> - Запустить 'Пивную рулетку' в группе.\n"
+        # Было: /ladder <ставка>
         "• <code>/ladder &lt;ставка&gt;</code> - Начать игру в 'Пивную лесенку'.\n\n"
         "--- --- ---\n"
         "<b>Прочее</b>\n"
         "• <code>/id</code> - Узнать свой User ID и ID текущего чата."
     )
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+    
     await message.answer(help_text, parse_mode='HTML')
 
 @common_router.message(Command("id"))
