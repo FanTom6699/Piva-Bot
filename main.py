@@ -4,24 +4,31 @@ import logging
 import os
 import sys
 
+# --- НОВЫЙ, БОЛЕЕ НАДЕЖНЫЙ ФИКС ИМПОРТА ---
+# Этот код принудительно добавляет папку, где лежит 'main.py' (т.е. 'src'),
+# в список путей Python. Это решает 'ModuleNotFoundError'.
+this_file_path = os.path.abspath(__file__)
+this_dir = os.path.dirname(this_file_path)
+if this_dir not in sys.path:
+    sys.path.insert(0, this_dir)
+# --- КОНЕЦ ФИКСА ---
+
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
-# --- ВАЖНО: ИСПРАВЛЕНИЕ ОШИБКИ ИМПОРТА ---
-# Это добавляет корневую папку в пути Python.
-# Теперь `from utils import ...` и `from database import ...` 
-# будут работать изнутри папки `handlers`.
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# --- Импорты (теперь они работают) ---
-import config
+# --- Импорты (теперь они должны работать) ---
 from database import Database
 from settings import SettingsManager
-from handlers import main_router
+
+# Импортируем оба роутера из их папок
+from handlers import main_router 
+from mafia_handlers import mafia_router 
+
 from handlers.game_raid import raid_background_updater, active_raid_tasks, check_raid_status
 
+# --- Функция для перезапуска задач Рейда (остается без изменений) ---
 async def start_active_raid_tasks(bot: Bot, db: Database, settings: SettingsManager):
     """При старте бота ищет активные рейды в БД и запускает для них фоновые задачи."""
     logging.info("Проверка активных рейдов...")
@@ -29,7 +36,6 @@ async def start_active_raid_tasks(bot: Bot, db: Database, settings: SettingsMana
     count = 0
     for raid_data in active_raids:
         chat_id = raid_data[0]
-        
         # Сначала проверим, не закончился ли рейд, пока бот лежал
         is_still_active = await check_raid_status(chat_id, bot, db, settings)
         
@@ -41,29 +47,55 @@ async def start_active_raid_tasks(bot: Bot, db: Database, settings: SettingsMana
     logging.info(f"Запущено {count} фоновых задач для активных рейдов.")
 
 
-async def main():
-    # --- Загрузка конфигурации ---
+# --- Функция запуска Основного Бота ---
+async def start_main_bot(db: Database, settings: SettingsManager):
+    """Запускает основного бота (Пиво, Рейды)"""
     load_dotenv()
     BOT_TOKEN = os.getenv("BOT_TOKEN")
-    
-    # Если в .env нет, пробуем из config.py
     if not BOT_TOKEN:
-        try:
-            from config import BOT_TOKEN as CFG_TOKEN
-            BOT_TOKEN = CFG_TOKEN
-            logging.warning("Токен загружен из config.py. Рекомендуется использовать .env")
-        except ImportError:
-             logging.critical("ОШИБКА: BOT_TOKEN не найден! Проверьте .env или config.py.")
-             return
+        logging.error("Токен для 'BOT_TOKEN' не найден! Основной бот не запущен.")
+        return
 
-    # --- Инициализация ---
-    # Используем DefaultBotProperties для aiogram 3.9.0
-    bot = Bot(
-        token=BOT_TOKEN, 
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
+    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher()
     
-    # Путь к БД для Render.com
+    dp["db"] = db
+    dp["settings"] = settings
+    dp.include_router(main_router)
+    
+    await start_active_raid_tasks(bot, db, settings)
+    
+    logging.info("--- Основной бот (Пиво/Рейд) запущен. ---")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+# --- Функция запуска Мафия-Бота ---
+async def start_mafia_bot(db: Database, settings: SettingsManager):
+    """Запускает Мафия-бота"""
+    load_dotenv()
+    BOT_TOKEN_MAFIA = os.getenv("BOT_TOKEN_MAFIA")
+    if not BOT_TOKEN_MAFIA:
+        logging.warning("Токен 'BOT_TOKEN_MAFIA' не найден. Мафия-бот не будет запущен.")
+        return
+
+    bot = Bot(token=BOT_TOKEN_MAFIA, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher()
+    
+    dp["db"] = db
+    dp["settings"] = settings
+    dp.include_router(mafia_router) 
+    
+    logging.info("--- Мафия-бот запущен. ---")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+
+# --- Главная функция async main ---
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    
+    # --- Инициализация общих компонентов (БД и Настройки) ---
+    # Указываем Render, что БД должна храниться в /data/ (диск Render)
     db_path = os.getenv("DB_PATH", "bot_database.db")
     if "RENDER" in os.environ:
          db_path = "/data/bot_database.db"
@@ -72,35 +104,20 @@ async def main():
     db = Database(db_name=db_path)
     await db.initialize()
     
-    # Инициализируем Настройки
-    settings = SettingsManager(db)
+    settings = SettingsManager(db) 
     await settings.load_settings()
+    
+    logging.info("Запускаем ботов...")
 
-    # Инициализируем Диспетчер
-    dp = Dispatcher()
-    
-    # Подключаем главный роутер (который собрал все игры)
-    dp.include_router(main_router)
-    
-    # Передаем db и settings в хэндлеры
-    dp["db"] = db
-    dp["settings"] = settings
-    
-    logging.info("Бот запускается...")
-
-    # Удаляем вебхук (если он был) и начинаем опрос
-    await bot.delete_webhook(drop_pending_updates=True)
-    
-    # Запускаем фоновые задачи для рейдов
-    await start_active_raid_tasks(bot, db, settings)
-    
-    await dp.start_polling(bot)
+    await asyncio.gather(
+        start_main_bot(db, settings),
+        start_mafia_bot(db, settings)
+    )
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logging.info("Бот остановлен.")
+        logging.info("Работа ботов остановлена.")
     except Exception as e:
         logging.error(f"Критическая ошибка при запуске: {e}", exc_info=True)
