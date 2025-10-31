@@ -1,0 +1,30 @@
+# render.yaml
+services:
+  - type: worker
+    name: piva-bot-worker
+    env: python
+    
+    # Говорим Render, что все файлы лежат в папке 'src'
+    rootDir: src
+    
+    # Команда для установки зависимостей (из root)
+    buildCommand: pip install -r ../requirements.txt
+    
+    # Команда для запуска (из 'src')
+    startCommand: python main.py
+
+    # Подключаем диск для базы данных
+    dataDir: /data
+
+    # Настраиваем переменные окружения из .env
+    envVars:
+      - key: BOT_TOKEN
+        fromService:
+          type: env_var_group
+          name: piva-bot-secrets # (Название группы в Render)
+      - key: BOT_TOKEN_MAFIA
+        fromService:
+          type: env_var_group
+          name: piva-bot-secrets # (Название группы в Render)
+      - key: PYTHON_VERSION
+        value: 3.11 # (Используем стабильный Python)
