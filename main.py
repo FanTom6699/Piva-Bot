@@ -4,21 +4,12 @@ import logging
 import os
 import sys
 
-# --- ВАЖНО: ИСПРАВЛЕНИЕ ОШИБКИ ИМПОРТА "No module named 'handlers'" ---
-# Этот код принудительно добавляет папку, где лежит 'main.py' (т.е. 'src'),
-# в список путей Python.
-this_file_path = os.path.abspath(__file__)
-this_dir = os.path.dirname(this_file_path)
-if this_dir not in sys.path:
-    sys.path.insert(0, this_dir)
-# --- КОНЕЦ ФИКСА ---
-
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
-# --- Импорты (теперь они работают) ---
+# --- Импорты (теперь они работают, т.к. все в одной папке) ---
 from database import Database
 from settings import SettingsManager
 from handlers import main_router  # Импортируем только главный роутер
