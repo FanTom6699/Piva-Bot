@@ -11,7 +11,6 @@ from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
 from aiogram.exceptions import TelegramBadRequest
 
-# ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
 from database import Database
 from settings import SettingsManager
 from .common import check_user_registered
@@ -63,14 +62,19 @@ async def generate_lobby_text(game: GameState) -> str:
 async def cmd_roulette(message: Message, bot: Bot, db: Database, settings: SettingsManager):
     if message.chat.type == 'private': return await message.answer("Эта команда работает только в групповых чатах.")
     args = message.text.split()
+    
+    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
     if len(args) != 3 or not args[1].isdigit() or not args[2].isdigit():
         return await message.reply(
             "ℹ️ <b>Как запустить 'Пивную рулетку':</b>\n"
+            # Было: /roulette <ставка> <игроки>
             "Используйте команду: <code>/roulette &lt;ставка&gt; &lt;игроки&gt;</code>\n\n"
             f"• <code>&lt;ставка&gt;</code>: от {settings.roulette_min_bet} до {settings.roulette_max_bet} 🍺\n"
             "• <code>&lt;игроки&gt;</code>: от 2 до 6 человек\n\n"
             "Пример: <code>/roulette 10 4</code>", parse_mode='HTML'
         )
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
     chat_id = message.chat.id
     if chat_id in active_games: return await message.reply("В этом чате уже идет игра.")
     
