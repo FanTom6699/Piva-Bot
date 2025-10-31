@@ -1,322 +1,309 @@
 # handlers/game_raid.py
 import asyncio
 import random
-import logging
-from datetime import datetime, timedelta
-from contextlib import suppress
-
+import time
+import html # --- ДОБАВЛЕНО: для экранирования имен ---
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, User
-from aiogram.filters import Filter
-from aiogram.filters.callback_data import CallbackData
-from aiogram.exceptions import TelegramBadRequest
-
-# ИСПРАВЛЕННЫЕ ИМПОРТЫ (добавлены ..)
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from database import Database
 from settings import SettingsManager
-from .common import check_user_registered
+from utils import format_time_delta
+from handlers.common import check_user_registered
 
-# --- ИНИЦИАЛИЗАЦИЯ ---
-raid_router = Router()
+game_router = Router()
 
-# Глобальная переменная для отслеживания запущенных задач
-active_raid_tasks = {}
+# --- ИЗМЕНЕНИЕ 1: Тематические фразы для атак ---
+RAID_ATTACK_PHRASES = {
+    'normal': [
+        "<i>{name} кинул в Вышибалу пустой кружкой! <b>-{damage}</b> ❤️</i>",
+        "<i>{name} крикнул 'Твое пиво - вода!' и нанес <b>-{damage}</b> ❤️ урона!</i>",
+        "<i>{name} ловко пнул Вышибалу под колено! <b>-{damage}</b> ❤️</i>"
+    ],
+    'strong': [
+        "<i>{name} опрокинул на Вышибалу целый бочонок! <b>-{damage}</b> ❤️</i>",
+        "<i>{name} разбил об Вышибалу барный стул! Мощно! <b>-{damage}</b> ❤️</i>",
+        "<i>{name} провел серию ударов 'пьяного мастера'! <b>-{damage}</b> ❤️</i>"
+    ],
+    'fail': [
+        "<i>{name} попытался ударить, но промахнулся...</i>",
+        "<i>{name} замахнулся, но Вышибала поймал его за руку!</i>",
+        "<i>{name} споткнулся на ровном месте. Вышибала смеется...</i>"
+    ]
+}
+# --- КОНЕЦ ИЗМЕНЕНИЯ 1 ---
 
-# --- CALLBACKDATA ---
-class RaidCallbackData(CallbackData, prefix="raid"):
-    action: str
+# Словарь для хранения активных рейдов {chat_id: Raid}
+active_raids = {}
+raid_tasks = {} # {chat_id: asyncio.Task}
+
+class Raid:
+    def __init__(self, chat_id, settings: SettingsManager):
+        self.chat_id = chat_id
+        self.max_health = random.randint(settings.raid_boss_min_hp, settings.raid_boss_max_hp)
+        self.current_health = self.max_health
+        self.reward = random.randint(settings.raid_reward_min, settings.raid_reward_max)
+        self.duration = settings.raid_duration
+        self.start_time = int(time.time())
+        self.participants = set() # Храним user_id
+        self.message_id = None
+        self.lock = asyncio.Lock()
+        self.last_attackers = [] # (user_name, text)
+
+    @property
+    def is_active(self):
+        return self.current_health > 0 and (time.time() - self.start_time) < self.duration
+
+    def add_attacker_log(self, name, text):
+        safe_name = html.escape(name)
+        self.last_attackers.append((safe_name, text))
+        if len(self.last_attackers) > 5:
+            self.last_attackers.pop(0)
+
+# --- КОМАНДА ЗАПУСКА РЕЙДА (АДМИН) ---
+@game_router.message(Command("raid"))
+async def cmd_raid(message: Message, bot: Bot, db: Database, settings: SettingsManager):
+    if message.chat.type == "private":
+        return await message.answer("❌ Рейды можно запускать только в группах.")
+    if not await db.is_admin(message.from_user.id):
+        return await message.answer("⛔ Эту команду могут использовать только администраторы бота.")
     
-class RaidAttackCallbackData(CallbackData, prefix="raid_attack"):
-    action: str # 'normal' or 'strong'
+    chat_id = message.chat.id
+    if chat_id in active_raids and active_raids[chat_id].is_active:
+        return await message.answer("🔥 Рейд уже идет!")
 
-# --- ФУНКЦИИ ИГРЫ ---
-
-def format_health_bar(current: int, maximum: int, width: int = 10) -> str:
-    if maximum == 0: return "[ПУСТО]"
-    percent = current / maximum
-    if percent < 0: percent = 0
-    filled_blocks = int(percent * width)
-    empty_blocks = width - filled_blocks
-    return f"[{'█' * filled_blocks}{' ' * empty_blocks}] {int(percent * 100)}%"
-
-async def generate_raid_message(db: Database, chat_id: int) -> dict:
-    raid_data = await db.get_active_raid(chat_id)
-    if not raid_data:
-        return {"text": "Рейд не найден.", "reply_markup": None}
+    # Проверка глобального кулдауна
+    last_raid_time = await db.get_last_raid_time(chat_id)
+    cooldown = settings.raid_global_cooldown
+    current_time = int(time.time())
     
-    chat_id, msg_id, health, max_health, reward, end_time_iso = raid_data
-    end_time = datetime.fromisoformat(end_time_iso)
-    time_left = end_time - datetime.now()
-    
-    if time_left.total_seconds() <= 0:
-         time_str = "Время вышло!"
-    else:
-        days = time_left.days
-        hours, rem = divmod(time_left.seconds, 3600)
-        minutes, _ = divmod(rem, 60)
-        time_str = f"{days}д {hours}ч {minutes}м" if days > 0 else f"{hours}ч {minutes}м"
+    if last_raid_time and (current_time - last_raid_time) < cooldown:
+        remaining = cooldown - (current_time - last_raid_time)
+        # --- ИЗМЕНЕНИЕ 2: Текст кулдауна рейда (тематический) ---
+        return await message.answer(f"🍻 Бар еще не отошел от прошлого рейда!\nНовый 'Вышибала' появится через: {format_time_delta(remaining)}.")
+        # --- КОНЕЦ ИЗМЕНЕНИЯ 2 ---
 
-    health_bar = format_health_bar(health, max_health)
-    
-    text = (
-        f"🚨 <b>В БАРЕ ПЕРЕПОЛОХ!</b> 🚨\n\n"
-        f"На пороге <b>Огромный Вышибала</b>!\n"
-        f"❤️ Здоровье: <code>{health_bar}</code>\n"
-        f"({health if health > 0 else 0} / {max_health})\n\n"
-        f"💰 Награда за победу: <b>{reward} 🍺</b>\n"
-        f"⏳ Конец через: <b>{time_str}</b>"
-    )
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="⚔️ АТАКОВАТЬ", callback_data=RaidCallbackData(action="show_attack").pack()),
-            InlineKeyboardButton(text="ℹ️ Инфо", callback_data=RaidCallbackData(action="info").pack())
-        ]
-    ])
-    
-    return {"text": text, "reply_markup": keyboard}
+    raid = Raid(chat_id, settings)
+    active_raids[chat_id] = raid
+    await db.set_last_raid_time(chat_id, current_time)
 
-async def check_raid_status(chat_id: int, bot: Bot, db: Database, settings: SettingsManager):
-    raid_data = await db.get_active_raid(chat_id)
-    if not raid_data:
-        return False
-        
-    chat_id, msg_id, health, max_health, reward, end_time_iso = raid_data
-    end_time = datetime.fromisoformat(end_time_iso)
-    
-    is_ended = False
-    final_text = ""
-
-    if health <= 0:
-        is_ended = True
-        final_text = (
-            f"🏆 <b>ПОБЕДА!</b> 🏆\n\n"
-            f"Вышибала повержен! Бар спасен! "
-            f"Все участники рейда делят между собой <b>{reward} 🍺</b>!"
-        )
-    elif datetime.now() >= end_time:
-        is_ended = True
-        final_text = (
-            f"😭 <b>ПОРАЖЕНИЕ!</b> 😭\n\n"
-            f"Время вышло! Вышибала оказался слишком силен... "
-            f"Бар закрыт на уборку."
-        )
-
-    if is_ended:
-        with suppress(TelegramBadRequest):
-            await bot.unpin_chat_message(chat_id=chat_id, message_id=msg_id)
-            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-            
-        participants = await db.get_all_raid_participants(chat_id)
-        
-        if health <= 0 and participants:
-            reward_per_user = int(reward / len(participants))
-            if reward_per_user > 0:
-                final_text += f"\n\nКаждый из {len(participants)} участников получает по {reward_per_user} 🍺!"
-                for user_id, damage in participants:
-                    await db.change_rating(user_id, reward_per_user)
-            else:
-                 final_text += "\n\nТак много участников, что награда округлилась до нуля. Но вы сражались!"
-        
-        await bot.send_message(chat_id=chat_id, text=final_text, parse_mode='HTML')
-        await db.delete_raid(chat_id)
-        
-        if chat_id in active_raid_tasks:
-            active_raid_tasks[chat_id].cancel()
-            del active_raid_tasks[chat_id]
-            
-        return False
-    
-    return True
-
-async def raid_background_updater(chat_id: int, bot: Bot, db: Database, settings: SettingsManager):
-    while True:
-        try:
-            is_active = await check_raid_status(chat_id, bot, db, settings)
-            if not is_active:
-                break
-            
-            await asyncio.sleep(settings.raid_reminder_hours * 3600)
-            
-            raid_data = await db.get_active_raid(chat_id)
-            if raid_data:
-                health, max_health = raid_data[2], raid_data[3]
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=f"<i>Битва с Вышибалой продолжается! ⚔️\n"
-                         f"Осталось здоровья: [{health}/{max_health}]\n"
-                         f"Жмите на закреп, нужна помощь!</i>",
-                    parse_mode='HTML'
-                )
-                
-        except asyncio.CancelledError:
-            logging.info(f"Задача обновления рейда для чата {chat_id} остановлена.")
-            break
-        except Exception as e:
-            logging.error(f"Ошибка в raid_background_updater для чата {chat_id}: {e}")
-            await asyncio.sleep(60)
-
-async def start_raid_event(chat_id: int, bot: Bot, db: Database, settings: SettingsManager):
-    end_time = datetime.now() + timedelta(hours=settings.raid_duration_hours)
-    
-    # 1. Отправляем сообщение
-    message_data = await generate_raid_message(db, chat_id) # Это пока фейк, данных-то нет
-    message_data["text"] = (
-        f"🚨 <b>В БАРЕ ПЕРЕПОЛОХ!</b> 🚨\n\n"
-        f"На пороге <b>Огромный Вышибала</b>!\n"
-        f"❤️ Здоровье: <code>{format_health_bar(1, 1)}</code>\n"
-        f"({settings.raid_boss_health} / {settings.raid_boss_health})\n\n"
-        f"💰 Награда за победу: <b>{settings.raid_reward_pool} 🍺</b>\n"
-        f"⏳ Конец через: <b>{settings.raid_duration_hours}ч 0м</b>"
-    )
-    message_data["reply_markup"] = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="⚔️ АТАКОВАТЬ", callback_data=RaidCallbackData(action="show_attack").pack()),
-            InlineKeyboardButton(text="ℹ️ Инфо", callback_data=RaidCallbackData(action="info").pack())
-        ]
-    ])
-
-    sent_message = await bot.send_message(
-        chat_id=chat_id,
-        text=message_data["text"],
-        reply_markup=message_data["reply_markup"],
+    raid_message = await message.answer(
+        generate_raid_message(raid),
+        reply_markup=generate_raid_keyboard(raid, settings),
         parse_mode='HTML'
     )
+    raid.message_id = raid_message.message_id
     
-    # 2. Закрепляем
-    with suppress(TelegramBadRequest):
-        await bot.pin_chat_message(chat_id=chat_id, message_id=sent_message.message_id)
-        
-    # 3. Создаем рейд в БД
-    await db.create_raid(
-        chat_id=chat_id,
-        message_id=sent_message.message_id,
-        health=settings.raid_boss_health,
-        reward=settings.raid_reward_pool,
-        end_time=end_time
-    )
-    
-    # 4. Запускаем фоновую задачу
-    task = asyncio.create_task(raid_background_updater(chat_id, bot, db, settings))
-    active_raid_tasks[chat_id] = task
-
-
-# --- ХЭНДЛЕРЫ КНОПОК РЕЙДА ---
-
-@raid_router.callback_query(RaidCallbackData.filter(F.action == "info"))
-async def raid_info(callback: CallbackQuery, settings: SettingsManager):
-    await callback.answer(
-        text=f"Атакуйте босса!\n"
-             f"• Обычный удар: 1 раз в {settings.raid_hit_cooldown_minutes} мин.\n"
-             f"• Сильный удар: стоит {settings.raid_strong_hit_cost} 🍺.",
-        show_alert=True
+    # Запускаем таск, который будет обновлять сообщение и завершит рейд
+    raid_tasks[chat_id] = asyncio.create_task(
+        raid_updater(bot, db, raid, settings)
     )
 
-@raid_router.callback_query(RaidCallbackData.filter(F.action == "show_attack"))
-async def raid_show_attack(callback: CallbackQuery, bot: Bot, db: Database, settings: SettingsManager):
-    user_id = callback.from_user.id
-    chat_id = callback.message.chat.id
+# --- ГЕНЕРАЦИЯ ГЛАВНОГО СООБЩЕНИЯ РЕЙДА ---
+def generate_raid_message(raid: Raid) -> str:
+    health_percent = (raid.current_health / raid.max_health) * 100
+    health_bar = "█" * int(health_percent / 10) + "░" * (10 - int(health_percent / 10))
     
-    if not await check_user_registered(callback, bot, db):
-        return
+    health = raid.current_health
+    if health < 0: health = 0
+    
+    time_left = raid.start_time + raid.duration - int(time.time())
+    time_str = format_time_delta(time_left) if time_left > 0 else "0 сек"
+
+    attack_log = "\n".join(f"• {name}: {text}" for name, text in raid.last_attackers)
+    if not attack_log:
+        attack_log = "<i>(Пока никто не рискнул...)</i>"
+
+    # --- ИЗМЕНЕНИЕ 3: Главный текст рейда (атмосфера + мотивация) ---
+    text = (
+        f"🚨 <b>ВЫШИБАЛА В БАРЕ!</b> 🚨\n\n"
+        f"Этот громила <b>не пускает никого к стойке!</b> Нужно разобраться с ним всем вместе!\n\n"
+        f"❤️ <b>Здоровье:</b> <code>{health_bar}</code>\n"
+        f"({health} / {raid.max_health})\n\n"
+        f"💰 <b>Общая награда:</b> <b>{raid.reward} 🍺</b>\n"
+        f"⏳ <b>Уйдет сам через:</b> <b>{time_str}</b>\n\n"
+        f"<b>Последние события:</b>\n{attack_log}"
+    )
+    # --- КОНЕЦ ИЗМЕНЕНИЯ 3 ---
+    return text
+
+# --- ГЕНЕРАЦИЯ КНОПОК РЕЙДА ---
+def generate_raid_keyboard(raid: Raid, settings: SettingsManager) -> InlineKeyboardMarkup:
+    # --- ИЗМЕНЕНИЕ 4: Текст кнопок (тематический) ---
+    buttons = [
+        [
+            InlineKeyboardButton(text="💥 Кинуть кружкой (Беспл.)", callback_data="raid_attack_normal"),
+            InlineKeyboardButton(text=f"🪑 Ударить стулом ({settings.raid_strong_attack_cost} 🍺)", callback_data="raid_attack_strong")
+        ],
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="raid_refresh")]
+    ]
+    # --- КОНЕЦ ИЗМЕНЕНИЯ 4 ---
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# --- ТАСК ОБНОВЛЕНИЯ РЕЙДА ---
+async def raid_updater(bot: Bot, db: Database, raid: Raid, settings: SettingsManager):
+    update_interval = 15 # Обновляем сообщение каждые 15 сек
+    end_time = raid.start_time + raid.duration
+    
+    while raid.is_active:
+        await asyncio.sleep(update_interval)
+        if not raid.is_active: break # Могли убить до таймера
         
-    participant_data = await db.get_raid_participant(chat_id, user_id)
-    cooldown = settings.raid_hit_cooldown_minutes * 60
-    
-    can_normal_attack = True
-    time_since_hit = 999999
-    if participant_data and participant_data[3]: # [3] - last_hit_time
-        last_hit_time = datetime.fromisoformat(participant_data[3])
-        time_since_hit = (datetime.now() - last_hit_time).total_seconds()
-        if time_since_hit < cooldown:
-            can_normal_attack = False
+        try:
+            await bot.edit_message_text(
+                chat_id=raid.chat_id,
+                message_id=raid.message_id,
+                text=generate_raid_message(raid),
+                reply_markup=generate_raid_keyboard(raid, settings),
+                parse_mode='HTML'
+            )
+        except Exception:
+            pass # Ошибки (удаленное сообщение и т.д.)
+
+    # Рейд завершен
+    if raid.chat_id in active_raids:
+        del active_raids[raid.chat_id]
+    if raid.chat_id in raid_tasks:
+        del raid_tasks[raid.chat_id]
+        
+    await check_raid_status(bot, db, raid)
+
+# --- ПРОВЕРКА СТАТУСА (ПОБЕДА/ПОРАЖЕНИЕ) ---
+async def check_raid_status(bot: Bot, db: Database, raid: Raid):
+    if raid.current_health <= 0:
+        # Победа
+        reward_per_user = 0
+        if raid.participants:
+            reward_per_user = raid.reward // len(raid.participants)
             
-    balance = await db.get_user_beer_rating(user_id)
-    cost = settings.raid_strong_hit_cost
-    can_strong_attack = balance >= cost
-
-    buttons = []
-    if can_normal_attack:
-        buttons.append(InlineKeyboardButton(
-            text="🗡️ Обычный удар (Готово)", 
-            callback_data=RaidAttackCallbackData(action="normal").pack()
-        ))
-    if can_strong_attack:
-        buttons.append(InlineKeyboardButton(
-            text=f"💥 Сильный удар ({cost} 🍺)", 
-            callback_data=RaidAttackCallbackData(action="strong").pack()
-        ))
-    
-    if not buttons:
-        await callback.answer(
-            f"Вы пока не можете атаковать! "
-            f"Обычный удар будет готов через {int((cooldown - time_since_hit)/60)} мин. "
-            f"Для сильного удара нужно {cost} 🍺.",
-            show_alert=True
+        winners_list = []
+        for user_id in raid.participants:
+            await db.update_user_beer_rating(user_id, reward_per_user)
+            try:
+                # Пытаемся получить имя, но если юзер вышел - не страшно
+                user = await bot.get_chat_member(raid.chat_id, user_id)
+                winners_list.append(html.escape(user.user.full_name))
+            except Exception:
+                winners_list.append(f"Игрок (ID: {user_id})")
+        
+        # --- ИЗМЕНЕНИЕ 5: Текст победы (тематический) ---
+        text = (
+            f"🏆 <b>ПОБЕДА!</b> 🏆\n\n"
+            f"Вышибала повержен! <b>Путь к бару свободен!</b>\n\n"
+            f"Все, кто участвовал в 'убеждении', делят <b>{raid.reward} 🍺</b> (по <b>{reward_per_user} 🍺</b> каждому).\n\n"
+            f"<b>Герои дня:</b>\n" + "\n".join(f"• {name}" for name in winners_list)
         )
-        return
-
-    await callback.answer()
-    await callback.message.answer(
-        "Выберите тип атаки:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[buttons]),
-        ephemeral=True
-    )
-
-@raid_router.callback_query(RaidAttackCallbackData.filter())
-async def raid_do_attack(callback: CallbackQuery, callback_data: RaidAttackCallbackData, bot: Bot, db: Database, settings: SettingsManager):
-    user_id = callback.from_user.id
-    chat_id = callback.message.chat.id
-    action = callback_data.action
-
-    if chat_id not in active_raid_tasks:
-        return await callback.message.edit_text("Этот рейд уже завершен!")
-
-    raid_data = await db.get_active_raid(chat_id)
-    if not raid_data:
-        return await callback.message.edit_text("Этот рейд уже завершен!")
-    
-    damage = 0
-    cooldown = settings.raid_hit_cooldown_minutes * 60
-    
-    if action == "normal":
-        participant_data = await db.get_raid_participant(chat_id, user_id)
-        if participant_data and participant_data[3]:
-            last_hit_time = datetime.fromisoformat(participant_data[3])
-            time_since_hit = (datetime.now() - last_hit_time).total_seconds()
-            if time_since_hit < cooldown:
-                await callback.answer(f"Обычный удар еще не готов!", show_alert=True)
-                return await callback.message.delete()
+        # --- КОНЕЦ ИЗМЕНЕНИЯ 5 ---
         
-        damage = random.randint(settings.raid_normal_hit_damage_min, settings.raid_normal_hit_damage_max)
-        await db.add_raid_participant(chat_id, user_id, damage)
-        await callback.message.edit_text(f"<i>{callback.from_user.full_name} наносит {damage} урона!</i>", parse_mode='HTML')
+    else:
+        # Поражение
+        # --- ИЗМЕНЕНИЕ 6: Текст поражения (тематический) ---
+        text = (
+            f"⌛ <b>ВЫШИБАЛА УШЕЛ!</b> ⌛\n\n"
+            f"Время вышло. Вышибала отряхнулся, хмыкнул и ушел сам...\n"
+            f"Награда (<b>{raid.reward} 🍺</b>) никому не достается.\n\n"
+            f"<i>В следующий раз бейте сильнее!</i>"
+        )
+        # --- КОНЕЦ ИЗМЕНЕНИЯ 6 ---
 
-    elif action == "strong":
-        cost = settings.raid_strong_hit_cost
-        balance = await db.get_user_beer_rating(user_id)
-        if balance < cost:
-            await callback.answer(f"Недостаточно 🍺 для сильного удара!", show_alert=True)
-            return await callback.message.delete()
-            
-        await db.change_rating(user_id, -cost)
-        damage = random.randint(settings.raid_strong_hit_damage_min, settings.raid_strong_hit_damage_max)
-        await db.add_raid_participant(chat_id, user_id, damage)
-        await callback.message.edit_text(f"<i>{callback.from_user.full_name} кидает бочонок и наносит {damage} урона!</i>", parse_mode='HTML')
-
-    await db.update_raid_health(chat_id, damage)
-    new_data = await generate_raid_message(db, chat_id)
-    
     try:
         await bot.edit_message_text(
-            text=new_data["text"],
-            chat_id=chat_id,
-            message_id=raid_data[1], # message_id
-            reply_markup=new_data["reply_markup"],
+            chat_id=raid.chat_id,
+            message_id=raid.message_id,
+            text=text,
+            reply_markup=None,
             parse_mode='HTML'
         )
-    except TelegramBadRequest as e:
-        if "message is not modified" not in str(e):
-             logging.error(f"Ошибка при обновлении сообщения рейда: {e}")
-             
-    await check_raid_status(chat_id, bot, db, settings)
+    except Exception:
+        pass # Сообщение могло быть удалено
+
+# --- ОБРАБОТЧИК КНОПОК РЕЙДА ---
+@game_router.callback_query(F.data.startswith("raid_"))
+async def raid_button_callback(callback: CallbackQuery, bot: Bot, db: Database, settings: SettingsManager):
+    chat_id = callback.message.chat.id
+    if chat_id not in active_raids:
+        return await callback.answer("❌ Этот рейд уже закончился!", show_alert=True)
+    
+    raid = active_raids[chat_id]
+    if not raid.is_active:
+        return await callback.answer("❌ Этот рейд уже закончился!", show_alert=True)
+        
+    if callback.data == "raid_refresh":
+        # Просто обновляем сообщение (защита от спама)
+        await callback.answer()
+        try:
+            return await callback.message.edit_text(
+                generate_raid_message(raid),
+                reply_markup=generate_raid_keyboard(raid, settings),
+                parse_mode='HTML'
+            )
+        except Exception:
+            return # Не удалось обновить (обычно из-за "Message is not modified")
+
+    # --- ЛОГИКА АТАКИ ---
+    if not await check_user_registered(callback, bot, db):
+        return
+
+    user_id = callback.from_user.id
+    current_time = int(time.time())
+    
+    # Кулдаун атаки
+    last_attack_time = await db.get_user_last_raid_attack(user_id, raid.chat_id)
+    cooldown = settings.raid_attack_cooldown
+    if last_attack_time and (current_time - last_attack_time) < cooldown:
+        remaining = cooldown - (current_time - last_attack_time)
+        return await callback.answer(f"Ты пока отдыхаешь... Повторная атака через {remaining} сек.", show_alert=True)
+
+    await db.set_user_last_raid_attack(user_id, raid.chat_id, current_time)
+
+    # Выбор атаки
+    if callback.data == "raid_attack_normal":
+        damage = random.randint(settings.raid_normal_attack_min, settings.raid_normal_attack_max)
+        attack_text = random.choice(RAID_ATTACK_PHRASES['normal']).format(name="{name}", damage=damage)
+    
+    elif callback.data == "raid_attack_strong":
+        cost = settings.raid_strong_attack_cost
+        user_rating = await db.get_user_beer_rating(user_id)
+        if user_rating < cost:
+            return await callback.answer(f"Не хватает 'пива' на 'удар стулом'! Нужно {cost} 🍺.", show_alert=True)
+        
+        await db.update_user_beer_rating(user_id, -cost)
+        damage = random.randint(settings.raid_strong_attack_min, settings.raid_strong_attack_max)
+        attack_text = random.choice(RAID_ATTACK_PHRASES['strong']).format(name="{name}", damage=damage)
+    
+    else:
+        return await callback.answer() # Неизвестная кнопка
+
+    # Шанс промаха
+    if random.random() < settings.raid_attack_miss_chance:
+        damage = 0
+        attack_text = random.choice(RAID_ATTACK_PHRASES['fail']).format(name="{name}")
+        await callback.answer("Промах!", show_alert=False)
+    else:
+        await callback.answer(f"Удар! {damage} урона!", show_alert=False)
+
+    async with raid.lock:
+        if not raid.is_active: return # Проверяем еще раз, вдруг убили пока ждали lock
+        
+        raid.current_health -= damage
+        raid.participants.add(user_id)
+        raid.add_attacker_log(callback.from_user.full_name, attack_text.format(name="", damage=damage).strip()) # Лог без имени
+
+        if raid.current_health <= 0:
+            # Юзер нанес победный удар! Немедленно завершаем.
+            if raid_tasks.get(chat_id):
+                raid_tasks[chat_id].cancel()
+            await check_raid_status(bot, db, raid) # Запускаем завершение
+            if chat_id in active_raids: del active_raids[chat_id]
+            if chat_id in raid_tasks: del raid_tasks[chat_id]
+        else:
+            # Обновляем сообщение (если не убили)
+            try:
+                await callback.message.edit_text(
+                    generate_raid_message(raid),
+                    reply_markup=generate_raid_keyboard(raid, settings),
+                    parse_mode='HTML'
+                )
+            except Exception:
+                pass # "Message is not modified"
