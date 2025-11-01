@@ -1,6 +1,7 @@
 # settings.py
 import logging
 from database import Database
+from typing import Dict, Any, List, Tuple
 
 # Названия настроек на русском языке для /admin
 SETTINGS_NAMES = {
@@ -35,7 +36,6 @@ SETTINGS_NAMES = {
 }
 
 class SettingsManager:
-    # __init__ НЕ ПРИНИМАЕТ 'db'
     def __init__(self):
         logging.info("Инициализация Менеджера Настроек...")
         # --- ОБЫЧНЫЕ ---
@@ -71,12 +71,20 @@ class SettingsManager:
         self.mafia_win_authority = 15
         self.mafia_lose_authority = -10
 
-    # load_settings ПРИНИМАЕТ 'db'
     async def load_settings(self, db: Database):
         """Загружает все настройки из базы данных в экземпляр класса."""
         logging.info("Загрузка настроек из БД...")
         try:
             settings_data = await db.get_all_settings()
+            
+            # --- ИСПРАВЛЕНИЕ ОШИБКИ 'list' object has no attribute 'items' ---
+            # Если db.get_all_settings() вернул список кортежей (старая версия database.py),
+            # конвертируем его в словарь.
+            if isinstance(settings_data, list):
+                 # Если список пуст, это пустой словарь, иначе конвертируем
+                 settings_data = dict(settings_data) if settings_data else {}
+            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+            
             for key, value in settings_data.items():
                 if hasattr(self, key):
                     setattr(self, key, int(value))
