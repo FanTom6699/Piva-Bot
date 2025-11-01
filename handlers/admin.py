@@ -18,7 +18,6 @@ from .game_raid import start_raid_event # Импортируем функцию 
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 admin_router = Router()
-# db = Database(...) # Убрали. Будем получать из main.py
 
 # --- FSM СОСТОЯНИЯ ---
 class AdminStates(StatesGroup):
@@ -56,16 +55,22 @@ async def get_main_admin_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="⚔️ Управление Ивентами", callback_data=AdminCallbackData(action="events").pack())]
     ])
 
+# --- ИСПРАВЛЕНИЕ ЗДЕСЬ (get_settings_menu) ---
 async def get_settings_menu(settings_manager: SettingsManager) -> (str, InlineKeyboardMarkup):
     """Генерирует текст и клавиатуру для меню настроек."""
+    # Текст настроек УЖЕ включает рейд (из твоего settings.py)
     text = (
         f"{settings_manager.get_all_settings_text()}\n\n"
         f"<b>Какую настройку вы хотите изменить?</b>"
     )
     
+    # Добавляем кнопки для рейда в клавиатуру
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        # Общие
         [InlineKeyboardButton(text="Кулдаун /beer", callback_data=AdminSettingsCallbackData(setting_key="beer_cooldown").pack())],
         [InlineKeyboardButton(text="Шанс Джекпота (1 к X)", callback_data=AdminSettingsCallbackData(setting_key="jackpot_chance").pack())],
+        
+        # Игры
         [InlineKeyboardButton(text="Кулдаун Рулетки", callback_data=AdminSettingsCallbackData(setting_key="roulette_cooldown").pack())],
         [
             InlineKeyboardButton(text="Мин. Рулетка", callback_data=AdminSettingsCallbackData(setting_key="roulette_min_bet").pack()),
@@ -75,9 +80,27 @@ async def get_settings_menu(settings_manager: SettingsManager) -> (str, InlineKe
             InlineKeyboardButton(text="Мин. Лесенка", callback_data=AdminSettingsCallbackData(setting_key="ladder_min_bet").pack()),
             InlineKeyboardButton(text="Макс. Лесенка", callback_data=AdminSettingsCallbackData(setting_key="ladder_max_bet").pack())
         ],
+
+        # --- НОВЫЙ БЛОК: НАСТРОЙКИ РЕЙДА ---
+        [InlineKeyboardButton(text="Здоровье Босса", callback_data=AdminSettingsCallbackData(setting_key="raid_boss_health").pack())],
+        [InlineKeyboardButton(text="Награда Рейда", callback_data=AdminSettingsCallbackData(setting_key="raid_reward_pool").pack())],
+        [InlineKeyboardButton(text="Длит. Рейда (ч)", callback_data=AdminSettingsCallbackData(setting_key="raid_duration_hours").pack())],
+        [InlineKeyboardButton(text="КД удара (мин)", callback_data=AdminSettingsCallbackData(setting_key="raid_hit_cooldown_minutes").pack())],
+        [
+            InlineKeyboardButton(text="Мин. урон (об)", callback_data=AdminSettingsCallbackData(setting_key="raid_normal_hit_damage_min").pack()),
+            InlineKeyboardButton(text="Макс. урон (об)", callback_data=AdminSettingsCallbackData(setting_key="raid_normal_hit_damage_max").pack())
+        ],
+        [InlineKeyboardButton(text="Цена сильного уд.", callback_data=AdminSettingsCallbackData(setting_key="raid_strong_hit_cost").pack())],
+        [
+            InlineKeyboardButton(text="Мин. урон (сил)", callback_data=AdminSettingsCallbackData(setting_key="raid_strong_hit_damage_min").pack()),
+            InlineKeyboardButton(text="Макс. урон (сил)", callback_data=AdminSettingsCallbackData(setting_key="raid_strong_hit_damage_max").pack())
+        ],
+        # --- КОНЕЦ НОВОГО БЛОКА ---
+
         [InlineKeyboardButton(text="⬅️ Назад в админ-меню", callback_data=AdminCallbackData(action="main_admin_menu").pack())]
     ])
     return text, keyboard
+# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
 async def get_events_menu() -> (str, InlineKeyboardMarkup):
     text = "<b>⚔️ Управление Ивентами</b>\n\nВыберите ивент для настройки или запуска:"
@@ -177,16 +200,20 @@ async def process_setting_value(message: Message, state: FSMContext, db: Databas
 # --- Обработчики меню ивентов ---
 CHATS_PER_PAGE = 5
 
+# --- ИСПРАВЛЕНИЕ ЗДЕСЬ (cq_raid_menu) ---
 @admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "menu"), IsAdmin())
 async def cq_raid_menu(callback: CallbackQuery, settings: SettingsManager):
     await callback.answer()
+    # Текст по-прежнему берется из settings.py
     text = settings.get_raid_settings_text()
+    
+    # Кнопка-пустышка УДАЛЕНА
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 ЗАПУСТИТЬ ИВЕНТ", callback_data=AdminRaidCallbackData(action="select_chat", page=0).pack())],
-        [InlineKeyboardButton(text="✏️ Изменить Настройки (см. /set)", callback_data="do_nothing")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=AdminCallbackData(action="events").pack())]
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
+# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
 @admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "select_chat"), IsAdmin())
 async def cq_raid_select_chat(callback: CallbackQuery, callback_data: AdminRaidCallbackData, db: Database):
@@ -236,7 +263,7 @@ async def cq_raid_start(callback: CallbackQuery, callback_data: AdminRaidCallbac
         await callback.message.edit_text(f"❌ Не удалось запустить ивент в чате {chat_id}.\nОшибка: {e}")
 
 
-# --- Остальные админ-команды ---
+# --- Остальные админ-команды (без изменений) ---
 @admin_router.message(AdminStates.broadcast_message, IsAdmin())
 async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot, db: Database):
     await state.clear()
@@ -319,13 +346,13 @@ async def admin_leave_chat(message: Message, bot: Bot):
 
 @admin_router.message(Command("settings"), IsAdmin())
 async def cmd_show_settings(message: Message, settings: SettingsManager):
-    await show_settings_menu(message, settings)
+    text, keyboard = await get_settings_menu(settings)
+    await message.answer(text, reply_markup=keyboard, parse_mode='HTML')
 
 @admin_router.message(Command("set"), IsAdmin())
 async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: SettingsManager):
     args = message.text.split()
     
-    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
     if len(args) != 3:
         # Экранируем <ключ> и <значение>
         await message.reply("Неверный формат. Используйте: <code>/set &lt;ключ&gt; &lt;значение&gt;</code>\n"
@@ -338,7 +365,6 @@ async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: Se
                             "raid_normal_hit_damage_min, raid_normal_hit_damage_max, raid_reminder_hours</code>",
                             parse_mode='HTML')
         return
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     key, value = args[1], args[2]
 
