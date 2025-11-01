@@ -6,27 +6,32 @@ from database import Database
 
 common_router = Router()
 
-# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ РЕГИСТРАЦИИ ---
+# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ РЕГИСТРАЦИИ (ТВОЙ ТЕКСТ) ---
 async def check_user_registered(message_or_callback: Message | CallbackQuery, bot: Bot, db: Database) -> bool:
     user = message_or_callback.from_user
     if await db.user_exists(user.id):
         return True
+    
     me = await bot.get_me()
     start_link = f"https://t.me/{me.username}?start=register"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✍️ Зарегистрироваться", url=start_link)]])
+    
+    # Твои крутые изменения:
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➡️ Зайти в бар (Регистрация)", url=start_link)]])
     text = (
-        "<b>Эй, новичок!</b> 🍻\n\n"
-        "Прежде чем играть, нужно зайти в бар! "
-        "Я тебя еще не знаю. Нажми на кнопку ниже, чтобы начать диалог со мной и зарегистрироваться."
+        "<b>Постой, незнакомец!</b> 🍻\n\n"
+        "Я тебя здесь раньше не видел. Нужно сперва заглянуть ко мне в личку, чтобы я тебя 'записал' в наш клуб.\n\n"
+        "Нажми кнопку ⬇️, чтобы зайти."
     )
+    
     if isinstance(message_or_callback, Message):
         await message_or_callback.reply(text, reply_markup=keyboard, parse_mode='HTML')
     else:
+        # Для inline-кнопок (рулетка, лесенка и т.д.)
         await message_or_callback.answer("Сначала нужно зарегистрироваться!", show_alert=True)
         await bot.send_message(message_or_callback.message.chat.id, text, reply_markup=keyboard, parse_mode='HTML')
     return False
 
-# --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА ---
+# --- ОБРАБОТЧИКИ СОБЫТИЙ ЧАТА (без изменений) ---
 @common_router.my_chat_member()
 async def handle_bot_membership(event: ChatMemberUpdated, bot: Bot, db: Database):
     old_status = event.old_chat_member.status
@@ -36,29 +41,25 @@ async def handle_bot_membership(event: ChatMemberUpdated, bot: Bot, db: Database
     elif old_status in ("member", "administrator") and new_status in ("left", "kicked"):
         await db.remove_chat(event.chat.id)
 
-# --- КОМАНДЫ ПОЛЬЗОВАТЕЛЕЙ ---
+# --- КОМАНДЫ ПОЛЬЗОВАТЕЛЕЙ (ТВОЙ ТЕКСТ) ---
 @common_router.message(CommandStart())
 async def cmd_start(message: Message, db: Database):
     user = message.from_user
     if not await db.user_exists(user.id):
         await db.add_user(user.id, user.first_name, user.last_name, user.username)
         
-        # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        # Твой новый приветственный текст:
         welcome_text = (
-            f"Привет, {user.full_name}! 👋\n"
-            f"Добро пожаловать в наш пивной клуб! Твой начальный рейтинг: 0 🍺.\n\n"
-            f"Вот список доступных команд:\n"
+            f"Рад знакомству, <b>{user.full_name}</b>! 🤝\n\n"
+            f"Добро пожаловать в 'Пивную'. Твоя кружка пока пуста (рейтинг: 0 🍺), но это легко исправить!\n\n"
+            f"<b>Вот твоя карта бара:</b>\n"
             f"• <code>/beer</code> - Испытать удачу (раз в 2 часа).\n"
             f"• <code>/top</code> - Показать таблицу лидеров.\n"
             f"• <code>/jackpot</code> - Проверить текущий джекпот.\n"
-            # Было: /roulette <ставка> <игроки>
             f"• <code>/roulette &lt;ставка&gt; &lt;игроки&gt;</code> - Запустить 'Пивную рулетку'.\n"
-            # Было: /ladder <ставка>
             f"• <code>/ladder &lt;ставка&gt;</code> - Начать игру в 'Пивную лесенку'.\n"
             f"• <code>/help</code> - Показать эту справку."
         )
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-        
         await message.answer(welcome_text, parse_mode='HTML')
     else:
         rating = await db.get_user_beer_rating(user.id)
@@ -66,29 +67,25 @@ async def cmd_start(message: Message, db: Database):
 
 @common_router.message(Command("help"))
 async def cmd_help(message: Message):
-    
-    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    # Твое новое "Меню Бара":
     help_text = (
-        "<b>🍻 Справка по командам бота 🍻</b>\n\n"
-        "Здесь собраны все доступные команды и их описание.\n\n"
+        "<b>🍻 Меню Бара (Помощь) 🍻</b>\n\n"
+        "Запутался? Не беда, вот наша 'карта'.\n\n"
         "--- --- ---\n"
-        "<b>Основные команды</b>\n"
+        "<b>Основное:</b>\n"
         "• <code>/start</code> - Зарегистрироваться или проверить свой профиль.\n"
         "• <code>/beer</code> - Испытать удачу (раз в 2 часа).\n"
         "• <code>/top</code> - Показать таблицу лидеров.\n"
         "• <code>/jackpot</code> - Проверить текущий джекпот.\n\n"
         "--- --- ---\n"
-        "<b>Мини-игры</b>\n"
-        # Было: /roulette <ставка> <игроки>
+        "<b>Мини-игры:</b>\n"
+        # Важно: &lt; и &gt; нужны, чтобы /set и /ladder не сломали HTML-разметку
         "• <code>/roulette &lt;ставка&gt; &lt;игроки&gt;</code> - Запустить 'Пивную рулетку' в группе.\n"
-        # Было: /ladder <ставка>
         "• <code>/ladder &lt;ставка&gt;</code> - Начать игру в 'Пивную лесенку'.\n\n"
         "--- --- ---\n"
-        "<b>Прочее</b>\n"
+        "<b>Прочее:</b>\n"
         "• <code>/id</code> - Узнать свой User ID и ID текущего чата."
     )
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-    
     await message.answer(help_text, parse_mode='HTML')
 
 @common_router.message(Command("id"))
