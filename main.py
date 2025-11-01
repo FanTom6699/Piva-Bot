@@ -7,7 +7,7 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from dotenv import load_dotenv
+from dotenv import load_dotenv # <-- Добавлен импорт
 
 # --- Импорты (теперь они работают, т.к. все в одной папке) ---
 import config
@@ -36,14 +36,13 @@ async def start_active_raid_tasks(bot: Bot, db: Database, settings: SettingsMana
 # --- Главная функция async main ---
 async def main():
     logging.basicConfig(level=logging.INFO)
-    load_dotenv()
+    load_dotenv() # <-- Вызываем dotenv
     
     # --- Загрузка токена ---
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     if not BOT_TOKEN:
         logging.warning("BOT_TOKEN не найден в .env, пытаюсь загрузить из config.py...")
         try:
-            # Пытаемся взять из твоего config.py
             BOT_TOKEN = config.BOT_TOKEN 
         except (ImportError, AttributeError):
             logging.critical("ОШИБКА: BOT_TOKEN не найден ни в .env, ни в config.py!")
@@ -58,11 +57,12 @@ async def main():
     db = Database(db_name=db_path)
     await db.initialize()
     
-    # Инициализируем настройки (на основе твоих файлов main.py и settings.py)
+    # --- ИСПРАВЛЕНИЕ ЛОГИКИ ---
     # 1. Создаем settings_manager (твой __init__ не принимает db)
     settings_manager = SettingsManager()
     # 2. Вызываем load_settings (твой load_settings принимает db)
     await settings_manager.load_settings(db)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     
     # --- Инициализация Бота ---
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
