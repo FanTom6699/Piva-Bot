@@ -15,7 +15,7 @@ import config
 from database import Database
 from settings import SettingsManager
 
-# --- ИСПРАВЛЕННЫЕ ИМПОРТЫ ---
+# --- ИМПОРТЫ ---
 from utils import active_lobby_timers, format_time_left, active_games, GAME_ACTIVE_KEY
 from .game_mafia_core import MafiaGameStates, distribute_roles_and_start 
 # --- КОНЕЦ ИМПОРТОВ ---
@@ -53,7 +53,7 @@ async def generate_lobby_text_and_keyboard(db: Database, settings: SettingsManag
     players_list_data = await db.get_mafia_players(chat_id)
     player_count = len(players_list_data)
     
-    # --- ИСПРАВЛЕНИЕ 1: Безопасное получение имени создателя ---
+    # (Исправление 1: Безопасное получение имени создателя)
     creator_db_user = await db.get_user_by_id(creator_id)
     creator_name = html.quote(creator_db_user[0]) if creator_db_user else f"Creator {creator_id}"
     text = f"🕵️‍♂️ <b>Набор в 'Пивную Мафию'</b> 🕵️‍♂️\n\n"
@@ -66,7 +66,7 @@ async def generate_lobby_text_and_keyboard(db: Database, settings: SettingsManag
         player_lines = []
         for i, player in enumerate(players_list_data):
             user_id = player[1]
-            # --- ИСПРАВЛЕНИЕ 2: Безопасное получение имен игроков ---
+            # (Исправление 2: Безопасное получение имен игроков)
             db_user = await db.get_user_by_id(user_id)
             player_name = html.quote(db_user[0]) if db_user else f"Игрок {user_id}"
             player_lines.append(f"{i+1}. {player_name}")
@@ -110,7 +110,18 @@ async def update_lobby_message(bot: Bot, db: Database, settings: SettingsManager
     
     try:
         text, keyboard = await generate_lobby_text_and_keyboard(db, settings, chat_id, creator_id, timer_enabled)
-        await bot.edit_message_text(text, chat_id, message_id, reply_markup=keyboard, parse_mode="HTML")
+        
+        # --- ✅✅✅ ИСПРАВЛЕНИЕ Pydantic V2 ✅✅✅ ---
+        # (Используем именованные аргументы)
+        await bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        # --- --- ---
+        
     except TelegramBadRequest as e:
         if "message is not modified" in str(e):
             pass 
@@ -163,7 +174,7 @@ async def cmd_mafia_start(message: Message, bot: Bot, db: Database, settings: Se
         await message.reply("В этом чате уже идет набор или игра в Мафию!")
         return
         
-    # --- ИСПРАВЛЕНИЕ 3: Регистрируем создателя, если его нет ---
+    # (Исправление 3: Регистрируем создателя, если его нет)
     if not await db.user_exists(creator.id):
         await db.add_user(
             user_id=creator.id,
@@ -180,7 +191,7 @@ async def cmd_mafia_start(message: Message, bot: Bot, db: Database, settings: Se
     if not success:
         return await message.reply("Не удалось создать игру (возможно, она уже есть).")
 
-    # 2. ИСПРАВЛЕНИЕ 4: Сразу добавляем создателя в игру
+    # 2. (Исправление 4: Сразу добавляем создателя в игру)
     await db.add_mafia_player(chat_id, creator_id)
 
     # 3. Запускаем таймер
@@ -212,9 +223,8 @@ async def cq_mafia_join(callback: CallbackQuery, bot: Bot, db: Database, setting
         await callback.answer("Набор в игру уже закрыт.", show_alert=True)
         return
         
-    # --- ИСПРАВЛЕНИЕ 5: Проверка регистрации (как в старом файле) ---
+    # (Исправление 5: Проверка регистрации)
     if not await db.user_exists(user.id):
-        # Отправляем в ЛС основному боту
         me = await bot.get_me() 
         main_bot_token = os.getenv("BOT_TOKEN", getattr(config, "BOT_TOKEN", None))
         if main_bot_token:
@@ -256,7 +266,7 @@ async def cq_mafia_leave(callback: CallbackQuery, bot: Bot, db: Database, settin
         await callback.answer("Набор в игру уже закрыт.", show_alert=True)
         return
         
-    # --- ИСПРАВЛЕНИЕ 6: Создатель не может выйти ---
+    # (Исправление 6: Создатель не может выйти)
     creator_id = game[2]
     if user_id == creator_id:
         await callback.answer("Создатель не может покинуть лобби. Нажмите 'Отменить игру'.", show_alert=True)
@@ -275,17 +285,14 @@ async def cq_mafia_cancel_game(callback: CallbackQuery, bot: Bot, db: Database, 
     
     message_id = game[1]
 
-    # (Проверка, что это лобби, а не игра)
     if game[3] != 'lobby':
         await callback.answer("Нельзя отменить уже запущенную игру! (Используйте /mafia_clear у Пивного Бота)", show_alert=True)
         return
         
-    # Отменяем таймер
     if chat_id in active_lobby_timers:
         active_lobby_timers[chat_id].cancel()
         del active_lobby_timers[chat_id]
         
-    # Удаляем флаг игры
     if chat_id in active_games:
         del active_games[chat_id]
         
@@ -294,7 +301,16 @@ async def cq_mafia_cancel_game(callback: CallbackQuery, bot: Bot, db: Database, 
         
     await db.delete_mafia_game(chat_id)
     await callback.answer("Игра отменена.")
-    await bot.edit_message_text("🚫 Игра в Мафию отменена.", chat_id, message_id, reply_markup=None)
+    
+    # --- ✅✅✅ ИСПРАВЛЕНИЕ Pydantic V2 ✅✅✅ ---
+    # (Используем именованные аргументы)
+    await bot.edit_message_text(
+        text="🚫 Игра в Мафию отменена.",
+        chat_id=chat_id,
+        message_id=message_id,
+        reply_markup=None
+    )
+    # --- --- ---
 
 
 @mafia_lobby_router.callback_query(MafiaLobbyCallbackData.filter(F.action == "toggle_timer"))
@@ -329,16 +345,11 @@ async def cq_mafia_start_game(callback: CallbackQuery, bot: Bot, db: Database, s
     game = await db.get_mafia_game(chat_id)
     if not game or game[3] != 'lobby': return
     
-    creator_id = game[2]
-    
-    # (Фильтр IsChatAdmin() уже проверил права)
-    
     player_count = await db.get_mafia_player_count(chat_id)
     if player_count < settings.mafia_min_players:
         await callback.answer(f"Недостаточно игроков. (Мин: {settings.mafia_min_players})", show_alert=True)
         return
 
-    # Отменяем таймер
     if chat_id in active_lobby_timers:
         active_lobby_timers[chat_id].cancel()
         del active_lobby_timers[chat_id]
@@ -364,7 +375,6 @@ async def cmd_mafia_force_start(message: Message, bot: Bot, db: Database, settin
         await message.reply(f"Недостаточно игроков. (Мин: {settings.mafia_min_players})")
         return
 
-    # Отменяем таймер
     if chat_id in active_lobby_timers:
         active_lobby_timers[chat_id].cancel()
         del active_lobby_timers[chat_id]
