@@ -2,6 +2,7 @@
 import aiosqlite
 import logging
 from datetime import datetime
+from typing import Dict, Any # Добавлен импорт для типа Dict
 
 class Database:
     def __init__(self, db_name="bot_database.db"):
@@ -28,7 +29,7 @@ class Database:
                     title TEXT
                 );
             """)
-            # ИСПОЛЬЗУЕМ 'bot_settings', как ожидает твой admin.py
+            # Таблица для настроек
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS bot_settings (
                     key TEXT PRIMARY KEY,
@@ -60,10 +61,13 @@ class Database:
             logging.info("Таблицы базы данных проверены и созданы (если отсутствовали).")
 
     # --- Управление Настройками (для 'bot_settings') ---
-    async def get_all_settings(self):
+    async def get_all_settings(self) -> Dict[str, Any]:
+        """Возвращает ВСЕ настройки в виде СЛОВАРЯ {key: value}."""
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute("SELECT key, value FROM bot_settings")
-            return await cursor.fetchall()
+            rows = await cursor.fetchall()
+            # ИСПРАВЛЕНИЕ: Преобразуем список кортежей в словарь
+            return {row[0]: row[1] for row in rows}
 
     async def get_setting(self, key):
         async with aiosqlite.connect(self.db_name) as db:
@@ -84,9 +88,10 @@ class Database:
 
     async def add_user(self, user_id, first_name, last_name, username):
         async with aiosqlite.connect(self.db_name) as db:
+            # Сохраняем начальное время пива, чтобы не было ошибки при первой проверке
             await db.execute(
                 "INSERT INTO users (user_id, first_name, last_name, username, last_beer_time) VALUES (?, ?, ?, ?, ?)",
-                (user_id, first_name, last_name, username, datetime(2000, 1, 1))
+                (user_id, first_name, last_name, username, datetime(2000, 1, 1).isoformat())
             )
             await db.commit()
 
@@ -122,19 +127,20 @@ class Database:
             # Важно: твой код `user_commands.py` ожидает объект datetime
             if row and row[0]:
                 try:
+                    # Извлекаем ISO формат и преобразуем в datetime
                     return datetime.fromisoformat(row[0])
                 except (ValueError, TypeError):
-                     # Обработка старого формата, если вдруг он не iso
+                     # Обработка старого формата
                      return datetime(2000, 1, 1)
             return None
 
 
     async def update_beer_data(self, user_id, new_rating):
         async with aiosqlite.connect(self.db_name) as db:
+            # Сохраняем в ISO формате (строка), как ожидают другие методы
             await db.execute(
                 "UPDATE users SET beer_rating = ?, last_beer_time = ? WHERE user_id = ?",
-                # Сохраняем как TIMESTAMP (datetime-объект), как ожидает твой `user_commands.py`
-                (new_rating, datetime.now(), user_id)
+                (new_rating, datetime.now().isoformat(), user_id)
             )
             await db.commit()
             
@@ -226,11 +232,11 @@ class Database:
         async with aiosqlite.connect(self.db_name) as db:
             await db.execute(
                 "INSERT OR IGNORE INTO raid_participants (raid_id, user_id, total_damage, last_hit_time) VALUES (?, ?, 0, ?)",
-                (chat_id, user_id, datetime(2000, 1, 1))
+                (chat_id, user_id, datetime(2000, 1, 1).isoformat())
             )
             await db.execute(
                 "UPDATE raid_participants SET total_damage = total_damage + ?, last_hit_time = ? WHERE raid_id = ? AND user_id = ?",
-                (damage, datetime.now(), chat_id, user_id)
+                (damage, datetime.now().isoformat(), chat_id, user_id)
             )
             await db.commit()
             
