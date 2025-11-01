@@ -55,16 +55,14 @@ async def get_main_admin_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="⚔️ Управление Ивентами", callback_data=AdminCallbackData(action="events").pack())]
     ])
 
-# --- ИСПРАВЛЕНИЕ ЗДЕСЬ (get_settings_menu) ---
 async def get_settings_menu(settings_manager: SettingsManager) -> (str, InlineKeyboardMarkup):
     """Генерирует текст и клавиатуру для меню настроек."""
-    # Текст настроек УЖЕ включает рейд (из твоего settings.py)
+    # (Берем из settings.py, который ты мне присылал)
     text = (
         f"{settings_manager.get_all_settings_text()}\n\n"
         f"<b>Какую настройку вы хотите изменить?</b>"
     )
     
-    # Добавляем кнопки для рейда в клавиатуру
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         # Общие
         [InlineKeyboardButton(text="Кулдаун /beer", callback_data=AdminSettingsCallbackData(setting_key="beer_cooldown").pack())],
@@ -81,7 +79,7 @@ async def get_settings_menu(settings_manager: SettingsManager) -> (str, InlineKe
             InlineKeyboardButton(text="Макс. Лесенка", callback_data=AdminSettingsCallbackData(setting_key="ladder_max_bet").pack())
         ],
 
-        # --- НОВЫЙ БЛОК: НАСТРОЙКИ РЕЙДА ---
+        # Настройки Рейда
         [InlineKeyboardButton(text="Здоровье Босса", callback_data=AdminSettingsCallbackData(setting_key="raid_boss_health").pack())],
         [InlineKeyboardButton(text="Награда Рейда", callback_data=AdminSettingsCallbackData(setting_key="raid_reward_pool").pack())],
         [InlineKeyboardButton(text="Длит. Рейда (ч)", callback_data=AdminSettingsCallbackData(setting_key="raid_duration_hours").pack())],
@@ -95,12 +93,16 @@ async def get_settings_menu(settings_manager: SettingsManager) -> (str, InlineKe
             InlineKeyboardButton(text="Мин. урон (сил)", callback_data=AdminSettingsCallbackData(setting_key="raid_strong_hit_damage_min").pack()),
             InlineKeyboardButton(text="Макс. урон (сил)", callback_data=AdminSettingsCallbackData(setting_key="raid_strong_hit_damage_max").pack())
         ],
-        # --- КОНЕЦ НОВОГО БЛОКА ---
+        
+        # Настройки Мафии (из settings.py)
+        [InlineKeyboardButton(text="Таймер Лобби Мафии", callback_data=AdminSettingsCallbackData(setting_key="mafia_lobby_timer").pack())],
+        [InlineKeyboardButton(text="Таймер Ночи", callback_data=AdminSettingsCallbackData(setting_key="mafia_night_timer").pack())],
+        [InlineKeyboardButton(text="Награда Мафии (Победа)", callback_data=AdminSettingsCallbackData(setting_key="mafia_win_reward").pack())],
+        
 
         [InlineKeyboardButton(text="⬅️ Назад в админ-меню", callback_data=AdminCallbackData(action="main_admin_menu").pack())]
     ])
     return text, keyboard
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
 async def get_events_menu() -> (str, InlineKeyboardMarkup):
     text = "<b>⚔️ Управление Ивентами</b>\n\nВыберите ивент для настройки или запуска:"
@@ -132,7 +134,6 @@ async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCal
         await callback.message.edit_text("Добро пожаловать в админ-панель!", reply_markup=await get_main_admin_keyboard())
         return
 
-    # Убираем кнопки только если это не меню настроек или ивентов
     if action not in ["settings", "events"]:
         await callback.message.edit_reply_markup(reply_markup=None)
     
@@ -166,7 +167,11 @@ async def cq_admin_select_setting(callback: CallbackQuery, callback_data: AdminS
     await state.update_data(setting_key=setting_key)
     await state.set_state(AdminStates.waiting_for_setting_value)
     
-    current_value = getattr(settings, setting_key)
+    # (Проверка, что настройка Мафии есть, перед тем как ее запросить)
+    current_value = "N/A"
+    if hasattr(settings, setting_key):
+        current_value = getattr(settings, setting_key)
+        
     await callback.message.edit_text(
         f"Введите новое значение для <code>{setting_key}</code>.\n"
         f"Текущее значение: <code>{current_value}</code>\n\n"
@@ -200,20 +205,16 @@ async def process_setting_value(message: Message, state: FSMContext, db: Databas
 # --- Обработчики меню ивентов ---
 CHATS_PER_PAGE = 5
 
-# --- ИСПРАВЛЕНИЕ ЗДЕСЬ (cq_raid_menu) ---
 @admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "menu"), IsAdmin())
 async def cq_raid_menu(callback: CallbackQuery, settings: SettingsManager):
     await callback.answer()
-    # Текст по-прежнему берется из settings.py
     text = settings.get_raid_settings_text()
-    
-    # Кнопка-пустышка УДАЛЕНА
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 ЗАПУСТИТЬ ИВЕНТ", callback_data=AdminRaidCallbackData(action="select_chat", page=0).pack())],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=AdminCallbackData(action="events").pack())]
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
 
 @admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "select_chat"), IsAdmin())
 async def cq_raid_select_chat(callback: CallbackQuery, callback_data: AdminRaidCallbackData, db: Database):
@@ -344,6 +345,30 @@ async def admin_leave_chat(message: Message, bot: Bot):
     else:
         await message.reply("Эту команду можно использовать только в группах.")
 
+# --- НОВАЯ КОМАНДА ДЛЯ СБРОСА ЗАВИСШЕЙ МАФИИ ---
+@admin_router.message(Command("mafia_clear"), IsAdmin())
+async def cmd_mafia_clear(message: Message, db: Database):
+    """
+    Аварийная команда для очистки 'зависшей' игры Мафии из БД.
+    """
+    chat_id = message.chat.id
+    if message.chat.type == 'private':
+        await message.reply("Эту команду нужно использовать в группе, где 'зависла' игра.")
+        return
+
+    logging.info(f"[Admin] Принудительная очистка Мафии для чата {chat_id}")
+    
+    try:
+        # (db.delete_mafia_game была добавлена в database.py на Шаге 1)
+        await db.delete_mafia_game(chat_id)
+        await message.reply("✅ База данных Мафии для этого чата очищена.\n\n"
+                            "Теперь попробуйте снова написать <code>/mafia</code> боту Мафии.")
+    except Exception as e:
+        await message.reply(f"❌ Ошибка при очистке БД: {e}\n\n"
+                            f"(Убедитесь, что вы обновили `database.py` до версии с Мафией)")
+# --- КОНЕЦ НОВОЙ КОМАНДЫ ---
+
+
 @admin_router.message(Command("settings"), IsAdmin())
 async def cmd_show_settings(message: Message, settings: SettingsManager):
     text, keyboard = await get_settings_menu(settings)
@@ -362,7 +387,10 @@ async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: Se
                             "roulette_min_bet, roulette_max_bet, ladder_min_bet, ladder_max_bet, "
                             "raid_boss_health, raid_reward_pool, raid_duration_hours, raid_hit_cooldown_minutes, "
                             "raid_strong_hit_cost, raid_strong_hit_damage_min, raid_strong_hit_damage_max, "
-                            "raid_normal_hit_damage_min, raid_normal_hit_damage_max, raid_reminder_hours</code>",
+                            "raid_normal_hit_damage_min, raid_normal_hit_damage_max, raid_reminder_hours, "
+                            "mafia_lobby_timer, mafia_min_players, mafia_max_players, mafia_night_timer, "
+                            "mafia_day_timer, mafia_vote_timer, mafia_win_reward, mafia_lose_reward, "
+                            "mafia_win_authority, mafia_lose_authority</code>",
                             parse_mode='HTML')
         return
 
