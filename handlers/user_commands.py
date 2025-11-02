@@ -126,7 +126,7 @@ async def cmd_top(message: Message, bot: Bot, db: Database):
         
     await message.answer(top_text, parse_mode='HTML')
 
-# --- ✅✅✅ ИСПРАВЛЕННАЯ КОМАНДА ПРОФИЛЯ (/me) ✅✅✅ ---
+# --- ✅✅✅ ИСПРАВЛЕННАЯ КОМАНДА ПРОФИЛЯ (/me) (Текстовая версия) ✅✅✅ ---
 @user_commands_router.message(Command("me", "profile"))
 async def cmd_me(message: Message, bot: Bot, db: Database):
     user = message.from_user
@@ -161,27 +161,22 @@ async def cmd_me(message: Message, bot: Bot, db: Database):
         except (ValueError, TypeError):
             reg_date_str = "Давно..." # На случай, если в БД старая дата
 
-    # --- ✅ ИСПРАВЛЕННОЕ ФОРМАТИРОВАНИЕ (с выравниванием) ---
-    # Мы используем <code> для моноширинного шрифта.
-    # 'ljust(11)' - делает строку из 11 символов, добавляя пробелы справа.
+    # --- ✅ НОВЫЙ ТЕКСТОВЫЙ ПРОФИЛЬ (Без символов рамки) ---
     
     profile_text = (
-        f"<code>╔═══ 🍻 </code><b>ТВОЙ ПРОФИЛЬ</b><code> 🍻 ═══╗</code>\n"
-        f"<code>║</code>\n"
-        f"<code>║ </code>{'👤 Имя:'.ljust(11)} <code>{user_name}</code>\n"
-        f"<code>║ </code>{'🔰 Статус:'.ljust(11)} <code>{status}</code>\n"
-        f"<code>║</code>\n"
-        f"<code>╠═══ 📈 </code><b>СТАТИСТИКА</b><code> 📈 ═══╣</code>\n"
-        f"<code>║</code>\n"
-        f"<code>║ </code>{'🍺 Рейтинг:'.ljust(11)} <code>{rating}</code>\n"
-        f"<code>║ </code>{'🏆 Место:'.ljust(11)} <code>{rank}-е</code>\n"
-        f"<code>║</code>\n"
-        f"<code>╠═════ 👹 </code><b>РЕЙДЫ</b><code> 👹 ═════╣</code>\n"
-        f"<code>║</code>\n"
-        f"<code>║ </code>{'💥 Урон:'.ljust(11)} <code>{total_damage}</code>\n"
-        f"<code>║ </code>{'⚔️ Рейды:'.ljust(11)} <code>{raid_count}</code>\n"
-        f"<code>║</code>\n"
-        f"<code>╚══ 📅 </code><i>Ты в баре с {reg_date_str}</i><code> ══╝</code>"
+        f"🍻 <b>ТВОЙ ПРОФИЛЬ</b> 🍻\n\n"
+        f"👤 <b>Имя:</b> {user_name}\n"
+        f"🔰 <b>Статус:</b> {status}\n\n"
+        
+        f"📈 <b>СТАТИСТИКА</b>\n"
+        f"🍺 <b>Рейтинг:</b> {rating}\n"
+        f"🏆 <b>Место в топе:</b> {rank}-е\n\n"
+        
+        f"👹 <b>РЕЙДЫ</b>\n"
+        f"💥 <b>Всего урона:</b> {total_damage}\n"
+        f"⚔️ <b>Участвовал(а) в:</b> {raid_count} рейдах\n\n"
+        
+        f"📅 <i>Ты в баре с {reg_date_str}</i>"
     )
 
     # Отправляем с явным указанием parse_mode='HTML'
