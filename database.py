@@ -9,11 +9,32 @@ class Database:
         self.db_name = db_name
         logging.info(f"База данных {db_name} инициализирована.")
 
+    # --- ✅ НОВАЯ ФУНКЦИЯ МИГРАЦИИ ---
+    async def _run_migrations(self, db: aiosqlite.Connection):
+        """Проверяет и добавляет недостающие колонки в существующие таблицы."""
+        logging.info("Проверка структуры базы данных (миграции)...")
+        try:
+            # 1. Проверяем колонку 'registration_date' в 'users'
+            cursor = await db.execute("PRAGMA table_info(users)")
+            columns = [row[1] for row in await cursor.fetchall()]
+            
+            if 'registration_date' not in columns:
+                logging.warning("Обнаружена старая версия таблицы 'users'. Добавляю 'registration_date'...")
+                await db.execute("ALTER TABLE users ADD COLUMN registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                await db.commit()
+                logging.info("Таблица 'users' успешно обновлена.")
+            
+            # (Сюда можно добавлять другие проверки в будущем, если мы снова что-то поменяем)
+
+        except Exception as e:
+            logging.error(f"Ошибка во время миграции базы данных: {e}", exc_info=True)
+
+
     async def initialize(self):
-        """Создает таблицы, если они не существуют."""
+        """Создает таблицы, если они не существуют, и запускает миграции."""
         async with aiosqlite.connect(self.db_name) as db:
             # --- Таблица Пользователей ---
-            # (Мы уже добавляли registration_date, когда обновляли common.py)
+            # (Оставляем CREATE TABLE, как он был, для новых установок)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -63,7 +84,11 @@ class Database:
             # Убедимся, что джекпот существует
             await db.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('jackpot', 0)")
             await db.commit()
-            logging.info("Таблицы базы данных проверены и созданы (если отсутствовали).")
+            logging.info("Таблицы базы данных проверены.")
+            
+            # --- ✅ ЗАПУСКАЕМ МИГРАЦИЮ ---
+            # (Эта функция теперь будет исправлять старые таблицы)
+            await self._run_migrations(db)
 
     # --- Управление Настройками ---
     async def get_all_settings(self) -> Dict[str, Any]:
@@ -91,7 +116,7 @@ class Database:
 
     async def add_user(self, user_id, first_name, last_name, username):
         async with aiosqlite.connect(self.db_name) as db:
-            # Добавляем CURRENT_TIMESTAMP для registration_date
+            # (Этот код уже правильный, он будет работать ПОСЛЕ миграции)
             await db.execute(
                 "INSERT INTO users (user_id, first_name, last_name, username, last_beer_time, registration_date) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (user_id, first_name, last_name, username, datetime(2000, 1, 1).isoformat())
@@ -258,7 +283,7 @@ class Database:
             )
             return await cursor.fetchall()
 
-    # --- ✅✅✅ НОВЫЕ ФУНКЦИИ ДЛЯ ПРОФИЛЯ (/me) ✅✅✅ ---
+    # --- Функции Профиля (/me) (Остаются без изменений) ---
 
     async def get_user_rank(self, user_id: int) -> int:
         """Возвращает место пользователя в топе по рейтингу."""
@@ -277,6 +302,7 @@ class Database:
     async def get_user_reg_date(self, user_id: int) -> str | None:
         """Возвращает дату регистрации пользователя (в виде строки ISO)."""
         async with aiosqlite.connect(self.db_name) as db:
+            # Эта функция теперь будет работать, т.к. миграция добавит колонку
             cursor = await db.execute("SELECT registration_date FROM users WHERE user_id = ?", (user_id,))
             row = await cursor.fetchone()
             return row[0] if row else None
@@ -290,6 +316,5 @@ class Database:
             )
             row = await cursor.fetchone()
             if row:
-                # (row[0] = кол-во, row[1] = сумма урона)
                 return (row[0] or 0, row[1] or 0)
             return (0, 0)
