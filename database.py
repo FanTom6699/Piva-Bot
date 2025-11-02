@@ -9,7 +9,7 @@ class Database:
         self.db_name = db_name
         logging.info(f"База данных {db_name} инициализирована.")
 
-    # --- ✅ НОВАЯ ФУНКЦИЯ МИГРАЦИИ ---
+    # --- ИСПРАВЛЕННАЯ ФУНКЦИЯ МИГРАЦИИ ---
     async def _run_migrations(self, db: aiosqlite.Connection):
         """Проверяет и добавляет недостающие колонки в существующие таблицы."""
         logging.info("Проверка структуры базы данных (миграции)...")
@@ -19,13 +19,20 @@ class Database:
             columns = [row[1] for row in await cursor.fetchall()]
             
             if 'registration_date' not in columns:
-                logging.warning("Обнаружена старая версия таблицы 'users'. Добавляю 'registration_date'...")
-                await db.execute("ALTER TABLE users ADD COLUMN registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-                await db.commit()
-                logging.info("Таблица 'users' успешно обновлена.")
-            
-            # (Сюда можно добавлять другие проверки в будущем, если мы снова что-то поменяем)
+                logging.warning("Обнаружена старая версия таблицы 'users'. Добавляю 'registration_date' (Шаг 1/2)...")
+                
+                # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+                # Шаг 1: Добавляем колонку, разрешая ей быть NULL (БЕЗ DEFAULT)
+                await db.execute("ALTER TABLE users ADD COLUMN registration_date TIMESTAMP") 
+                
+                logging.info("... (Шаг 2/2) Заполняем 'registration_date' для старых пользователей...")
+                # Шаг 2: Заполняем NULL значения для существующих пользователей
+                await db.execute("UPDATE users SET registration_date = CURRENT_TIMESTAMP WHERE registration_date IS NULL")
+                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
+                await db.commit()
+                logging.info("Таблица 'users' успешно обновлена (миграция завершена).")
+            
         except Exception as e:
             logging.error(f"Ошибка во время миграции базы данных: {e}", exc_info=True)
 
@@ -34,7 +41,6 @@ class Database:
         """Создает таблицы, если они не существуют, и запускает миграции."""
         async with aiosqlite.connect(self.db_name) as db:
             # --- Таблица Пользователей ---
-            # (Оставляем CREATE TABLE, как он был, для новых установок)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -81,13 +87,11 @@ class Database:
                 );
             """)
             
-            # Убедимся, что джекпот существует
             await db.execute("INSERT OR IGNORE INTO bot_settings (key, value) VALUES ('jackpot', 0)")
             await db.commit()
             logging.info("Таблицы базы данных проверены.")
             
-            # --- ✅ ЗАПУСКАЕМ МИГРАЦИЮ ---
-            # (Эта функция теперь будет исправлять старые таблицы)
+            # --- ЗАПУСКАЕМ МИГРАЦИЮ ---
             await self._run_migrations(db)
 
     # --- Управление Настройками ---
@@ -116,7 +120,6 @@ class Database:
 
     async def add_user(self, user_id, first_name, last_name, username):
         async with aiosqlite.connect(self.db_name) as db:
-            # (Этот код уже правильный, он будет работать ПОСЛЕ миграции)
             await db.execute(
                 "INSERT INTO users (user_id, first_name, last_name, username, last_beer_time, registration_date) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (user_id, first_name, last_name, username, datetime(2000, 1, 1).isoformat())
@@ -218,7 +221,7 @@ class Database:
 
     async def get_all_chat_ids(self):
         async with aiosqlite.connect(self.db_name) as db:
-            cursor = await db.execute("SELECT chat_id FROM chats")
+            cursor = await db.execute("SELECT chat_id FROM users")
             return [row[0] for row in await cursor.fetchall()]
 
     # --- Управление Рейдами ---
@@ -283,10 +286,8 @@ class Database:
             )
             return await cursor.fetchall()
 
-    # --- Функции Профиля (/me) (Остаются без изменений) ---
-
+    # --- Функции Профиля (/me) ---
     async def get_user_rank(self, user_id: int) -> int:
-        """Возвращает место пользователя в топе по рейтингу."""
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute(
                 """
@@ -300,15 +301,12 @@ class Database:
             return row[0] if row else "N/A"
 
     async def get_user_reg_date(self, user_id: int) -> str | None:
-        """Возвращает дату регистрации пользователя (в виде строки ISO)."""
         async with aiosqlite.connect(self.db_name) as db:
-            # Эта функция теперь будет работать, т.к. миграция добавит колонку
             cursor = await db.execute("SELECT registration_date FROM users WHERE user_id = ?", (user_id,))
             row = await cursor.fetchone()
             return row[0] if row else None
 
     async def get_user_raid_stats(self, user_id: int) -> Tuple[int, int]:
-        """Возвращает (количество_рейдов, общий_урон) для пользователя."""
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute(
                 "SELECT COUNT(raid_id), SUM(total_damage) FROM raid_participants WHERE user_id = ?",
