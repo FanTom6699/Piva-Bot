@@ -1,7 +1,7 @@
 # handlers/user_commands.py
 import random
 from datetime import datetime, timedelta
-from aiogram import Router, Bot, html # <-- ✅ ДОБАВЛЕН 'html'
+from aiogram import Router, Bot, html # <-- Импортируем html
 from aiogram.types import Message
 from aiogram.filters import Command
 
@@ -126,7 +126,7 @@ async def cmd_top(message: Message, bot: Bot, db: Database):
         
     await message.answer(top_text, parse_mode='HTML')
 
-# --- ✅✅✅ НОВАЯ КОМАНДА ПРОФИЛЯ (/me) ✅✅✅ ---
+# --- ✅✅✅ ИСПРАВЛЕННАЯ КОМАНДА ПРОФИЛЯ (/me) ✅✅✅ ---
 @user_commands_router.message(Command("me", "profile"))
 async def cmd_me(message: Message, bot: Bot, db: Database):
     user = message.from_user
@@ -145,14 +145,10 @@ async def cmd_me(message: Message, bot: Bot, db: Database):
     
     # Определяем статус
     status = "🍺 Новичок"
-    if rating >= 100:
-        status = "🍻 Завсегдатай"
-    if rating >= 500:
-        status = "💪 Опытный"
-    if rating >= 1500:
-        status = "👹 Легенда Бара"
-    if rating >= 5000:
-        status = "👑 Пивной Король"
+    if rating >= 100: status = "🍻 Завсегдатай"
+    if rating >= 500: status = "💪 Опытный"
+    if rating >= 1500: status = "👹 Легенда Бара"
+    if rating >= 5000: status = "👑 Пивной Король"
 
     # Безопасно получаем имя
     user_name = html.quote(user.first_name)
@@ -165,25 +161,28 @@ async def cmd_me(message: Message, bot: Bot, db: Database):
         except (ValueError, TypeError):
             reg_date_str = "Давно..." # На случай, если в БД старая дата
 
-    # 4. Собираем "красивую" карточку
-    # (Используем <code> для моноширинного шрифта, чтобы "рамка" не ехала)
+    # --- ✅ ИСПРАВЛЕННОЕ ФОРМАТИРОВАНИЕ (с выравниванием) ---
+    # Мы используем <code> для моноширинного шрифта.
+    # 'ljust(11)' - делает строку из 11 символов, добавляя пробелы справа.
+    
     profile_text = (
-        f"╔═══════ 🍻 <b>ТВОЙ ПРОФИЛЬ</b> 🍻 ═══════╗\n"
-        f"║\n"
-        f"║ 👤 **Имя:** <code>{user_name}</code>\n"
-        f"║ 🔰 **Статус:** <code>{status}</code>\n"
-        f"║\n"
-        f"╠════════ 📈 **СТАТИСТИКА** 📈 ════════╣\n"
-        f"║\n"
-        f"║ 🍺 **Рейтинг:** <code>{rating}</code>\n"
-        f"║ 🏆 **Место в топе:** <code>{rank}-е</code>\n"
-        f"║\n"
-        f"╠═════════ 👹 **РЕЙДЫ** 👹 ═════════╣\n"
-        f"║\n"
-        f"║ 💥 **Всего урона:** <code>{total_damage}</code>\n"
-        f"║ ⚔️ **Участвовал(а) в:** <code>{raid_count}</code> рейдах\n"
-        f"║\n"
-        f"╚═══ 📅 *Ты в баре с {reg_date_str}* ═══╝"
+        f"<code>╔═══ 🍻 </code><b>ТВОЙ ПРОФИЛЬ</b><code> 🍻 ═══╗</code>\n"
+        f"<code>║</code>\n"
+        f"<code>║ </code>{'👤 Имя:'.ljust(11)} <code>{user_name}</code>\n"
+        f"<code>║ </code>{'🔰 Статус:'.ljust(11)} <code>{status}</code>\n"
+        f"<code>║</code>\n"
+        f"<code>╠═══ 📈 </code><b>СТАТИСТИКА</b><code> 📈 ═══╣</code>\n"
+        f"<code>║</code>\n"
+        f"<code>║ </code>{'🍺 Рейтинг:'.ljust(11)} <code>{rating}</code>\n"
+        f"<code>║ </code>{'🏆 Место:'.ljust(11)} <code>{rank}-е</code>\n"
+        f"<code>║</code>\n"
+        f"<code>╠═════ 👹 </code><b>РЕЙДЫ</b><code> 👹 ═════╣</code>\n"
+        f"<code>║</code>\n"
+        f"<code>║ </code>{'💥 Урон:'.ljust(11)} <code>{total_damage}</code>\n"
+        f"<code>║ </code>{'⚔️ Рейды:'.ljust(11)} <code>{raid_count}</code>\n"
+        f"<code>║</code>\n"
+        f"<code>╚══ 📅 </code><i>Ты в баре с {reg_date_str}</i><code> ══╝</code>"
     )
 
+    # Отправляем с явным указанием parse_mode='HTML'
     await message.answer(profile_text, parse_mode='HTML')
