@@ -21,14 +21,12 @@ class Database:
             if 'registration_date' not in columns:
                 logging.warning("Обнаружена старая версия таблицы 'users'. Добавляю 'registration_date' (Шаг 1/2)...")
                 
-                # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
                 # Шаг 1: Добавляем колонку, разрешая ей быть NULL (БЕЗ DEFAULT)
                 await db.execute("ALTER TABLE users ADD COLUMN registration_date TIMESTAMP") 
                 
                 logging.info("... (Шаг 2/2) Заполняем 'registration_date' для старых пользователей...")
                 # Шаг 2: Заполняем NULL значения для существующих пользователей
                 await db.execute("UPDATE users SET registration_date = CURRENT_TIMESTAMP WHERE registration_date IS NULL")
-                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
                 await db.commit()
                 logging.info("Таблица 'users' успешно обновлена (миграция завершена).")
@@ -81,7 +79,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS raid_participants (
                     raid_id INTEGER,
                     user_id INTEGER,
-                    total_damage INTEGER DEFAULT 0,
+                    damage_dealt INTEGER DEFAULT 0,
                     last_hit_time TIMESTAMP,
                     PRIMARY KEY (raid_id, user_id)
                 );
@@ -94,7 +92,7 @@ class Database:
             # --- ЗАПУСКАЕМ МИГРАЦИЮ ---
             await self._run_migrations(db)
 
-    # --- Управление Настройками ---
+    # --- Управление Настройками (без изменений) ---
     async def get_all_settings(self) -> Dict[str, Any]:
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute("SELECT key, value FROM bot_settings")
@@ -112,7 +110,7 @@ class Database:
             await db.execute("INSERT OR REPLACE INTO bot_settings (key, value) VALUES (?, ?)", (key, value))
             await db.commit()
 
-    # --- Управление Пользователями ---
+    # --- Управление Пользователями (без изменений) ---
     async def user_exists(self, user_id):
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
@@ -149,7 +147,7 @@ class Database:
             row = await cursor.fetchone()
             return row[0] if row else None
 
-    # --- Управление Пивом и Рейтингом ---
+    # --- Управление Пивом и Рейтингом (без изменений) ---
     async def get_user_beer_rating(self, user_id):
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute("SELECT beer_rating FROM users WHERE user_id = ?", (user_id,))
@@ -201,7 +199,7 @@ class Database:
     async def reset_jackpot(self):
         await self.update_setting('jackpot', 0)
 
-    # --- Управление Чатами ---
+    # --- Управление Чатами (без изменений) ---
     async def add_chat(self, chat_id, title):
         async with aiosqlite.connect(self.db_name) as db:
             await db.execute("INSERT OR REPLACE INTO chats (chat_id, title) VALUES (?, ?)", (chat_id, title))
@@ -224,7 +222,7 @@ class Database:
             cursor = await db.execute("SELECT chat_id FROM users")
             return [row[0] for row in await cursor.fetchall()]
 
-    # --- Управление Рейдами ---
+    # --- Управление Рейдами (без изменений) ---
     async def create_raid(self, chat_id, message_id, health, reward, end_time):
         async with aiosqlite.connect(self.db_name) as db:
             await db.execute(
@@ -260,11 +258,11 @@ class Database:
     async def add_raid_participant(self, chat_id, user_id, damage):
         async with aiosqlite.connect(self.db_name) as db:
             await db.execute(
-                "INSERT OR IGNORE INTO raid_participants (raid_id, user_id, total_damage, last_hit_time) VALUES (?, ?, 0, ?)",
+                "INSERT OR IGNORE INTO raid_participants (raid_id, user_id, damage_dealt, last_hit_time) VALUES (?, ?, 0, ?)",
                 (chat_id, user_id, datetime(2000, 1, 1).isoformat())
             )
             await db.execute(
-                "UPDATE raid_participants SET total_damage = total_damage + ?, last_hit_time = ? WHERE raid_id = ? AND user_id = ?",
+                "UPDATE raid_participants SET damage_dealt = damage_dealt + ?, last_hit_time = ? WHERE raid_id = ? AND user_id = ?",
                 (damage, datetime.now().isoformat(), chat_id, user_id)
             )
             await db.commit()
@@ -282,7 +280,7 @@ class Database:
     async def get_all_raid_participants(self, chat_id):
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute(
-                "SELECT user_id, total_damage FROM raid_participants WHERE raid_id = ? ORDER BY total_damage DESC", (chat_id,)
+                "SELECT user_id, damage_dealt FROM raid_participants WHERE raid_id = ? ORDER BY damage_dealt DESC", (chat_id,)
             )
             return await cursor.fetchall()
 
@@ -307,11 +305,16 @@ class Database:
             return row[0] if row else None
 
     async def get_user_raid_stats(self, user_id: int) -> Tuple[int, int]:
+        """Возвращает (количество_рейдов, общий_урон) для пользователя."""
         async with aiosqlite.connect(self.db_name) as db:
+            
+            # --- ✅✅✅ ИСПРАВЛЕНИЕ ОШИБКИ ЗДЕСЬ ✅✅✅ ---
             cursor = await db.execute(
-                "SELECT COUNT(raid_id), SUM(total_damage) FROM raid_participants WHERE user_id = ?",
+                "SELECT COUNT(raid_id), SUM(damage_dealt) FROM raid_participants WHERE user_id = ?",
                 (user_id,)
             )
+            # --- (было 'total_damage', стало 'damage_dealt') ---
+            
             row = await cursor.fetchone()
             if row:
                 return (row[0] or 0, row[1] or 0)
