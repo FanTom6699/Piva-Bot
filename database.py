@@ -12,6 +12,8 @@ class Database:
     async def initialize(self):
         """Создает таблицы, если они не существуют."""
         async with aiosqlite.connect(self.db_name) as db:
+            # --- Таблица Пользователей ---
+            # (Мы уже добавляли registration_date, когда обновляли common.py)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -23,18 +25,21 @@ class Database:
                     registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            # --- Таблица Чатов ---
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS chats (
                     chat_id INTEGER PRIMARY KEY,
                     title TEXT
                 );
             """)
+            # --- Таблица Настроек ---
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS bot_settings (
                     key TEXT PRIMARY KEY,
                     value INTEGER
                 );
             """)
+            # --- Таблицы Рейдов ---
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS active_raids (
                     chat_id INTEGER PRIMARY KEY,
@@ -86,14 +91,14 @@ class Database:
 
     async def add_user(self, user_id, first_name, last_name, username):
         async with aiosqlite.connect(self.db_name) as db:
+            # Добавляем CURRENT_TIMESTAMP для registration_date
             await db.execute(
-                "INSERT INTO users (user_id, first_name, last_name, username, last_beer_time) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO users (user_id, first_name, last_name, username, last_beer_time, registration_date) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (user_id, first_name, last_name, username, datetime(2000, 1, 1).isoformat())
             )
             await db.commit()
             
     async def get_user_by_id(self, user_id):
-        """Возвращает (first_name, last_name, username) пользователя по ID."""
         async with aiosqlite.connect(self.db_name) as db:
             cursor = await db.execute("SELECT first_name, last_name, username FROM users WHERE user_id = ?", (user_id,))
             return await cursor.fetchone()
@@ -252,3 +257,39 @@ class Database:
                 "SELECT user_id, total_damage FROM raid_participants WHERE raid_id = ? ORDER BY total_damage DESC", (chat_id,)
             )
             return await cursor.fetchall()
+
+    # --- ✅✅✅ НОВЫЕ ФУНКЦИИ ДЛЯ ПРОФИЛЯ (/me) ✅✅✅ ---
+
+    async def get_user_rank(self, user_id: int) -> int:
+        """Возвращает место пользователя в топе по рейтингу."""
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute(
+                """
+                SELECT (SELECT COUNT(1) FROM users WHERE beer_rating > t.beer_rating) + 1 AS rank
+                FROM users t
+                WHERE t.user_id = ?
+                """,
+                (user_id,)
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else "N/A"
+
+    async def get_user_reg_date(self, user_id: int) -> str | None:
+        """Возвращает дату регистрации пользователя (в виде строки ISO)."""
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute("SELECT registration_date FROM users WHERE user_id = ?", (user_id,))
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+    async def get_user_raid_stats(self, user_id: int) -> Tuple[int, int]:
+        """Возвращает (количество_рейдов, общий_урон) для пользователя."""
+        async with aiosqlite.connect(self.db_name) as db:
+            cursor = await db.execute(
+                "SELECT COUNT(raid_id), SUM(total_damage) FROM raid_participants WHERE user_id = ?",
+                (user_id,)
+            )
+            row = await cursor.fetchone()
+            if row:
+                # (row[0] = кол-во, row[1] = сумма урона)
+                return (row[0] or 0, row[1] or 0)
+            return (0, 0)
