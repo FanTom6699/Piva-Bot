@@ -12,30 +12,27 @@ from contextlib import suppress
 from typing import Dict, List, Set, Any
 from collections import Counter
 
-from aiogram.filters import StateFilter # (Как в твоем файле)
+from aiogram.filters import StateFilter 
 
 from database import Database
 from settings import SettingsManager
-# --- ИСПРАВЛЕННЫЙ ИМПОРТ ---
-# (Берем данные из utils.py в корне)
 from utils import format_time_left, active_games, GAME_ACTIVE_KEY 
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
 mafia_game_router = Router()
 
 # --- FSM (Главный) ---
 class MafiaGameStates(StatesGroup):
     game_in_progress = State()
-    awaiting_last_word = State()  # Состояние для убитого (ждем 30 сек)
-    night_voting = State()        # Состояние для чата мафии
+    awaiting_last_word = State()  
+    night_voting = State()        
 
 # --- CallbackData ---
 class MafiaNightVoteCallbackData(CallbackData, prefix="mafia_vote"):
-    action: str # 'kill', 'check', 'heal', 'self_heal'
+    action: str 
     target_user_id: int = 0
 
 class MafiaDayVoteCallbackData(CallbackData, prefix="mafia_day_vote"):
-    action: str # 'nominate'
+    action: str 
     target_user_id: int = 0
     
 class MafiaLynchVoteCallbackData(CallbackData, prefix="mafia_lynch"):
@@ -120,22 +117,18 @@ class GameManager:
         self.settings = settings
         self.day_count = 0
         self.players: Dict[int, Dict[str, Any]] = {} # {user_id: {'role': '...', 'is_alive': True, 'name': '...'}}
-        # Ночь
         self.night_votes: Dict[str, Dict[int, int]] = {'kill': {}, 'heal': {}, 'check': {}}
         self.night_voted_users: Set[int] = set()
         self.mafia_leader_id: int = 0
         self.night_timer_task: asyncio.Task = None
-        # День
         self.day_timer_task: asyncio.Task = None
         self.last_word_task: asyncio.Task = None
         self.day_votes_nominations: Dict[int, int] = {} # {voter_id: target_id}
         self.day_vote_timer_task: asyncio.Task = None
-        # Суд Линча
         self.lynch_candidate_id: int = 0
         self.day_votes_lynch: Dict[int, str] = {} # {voter_id: 'lynch'/'pardon'}
         self.lynch_vote_timer_task: asyncio.Task = None
         self.lynch_message_id: int = 0
-
 
     async def load_players_from_db(self):
         """Загружает игроков из БД в self.players и находит Лидера."""
@@ -157,9 +150,9 @@ class GameManager:
         alive = []
         for user_id, data in self.players.items():
             if data['is_alive']:
-                if roles is None: # Если роли не важны
+                if roles is None: 
                     alive.append(user_id)
-                elif data['role'] in roles: # Если фильтруем по ролям
+                elif data['role'] in roles: 
                     alive.append(user_id)
         return alive
     
@@ -173,18 +166,45 @@ class GameManager:
 active_game_managers: Dict[int, GameManager] = {}
 
 
+# --- ✅ НОВАЯ ФУНКЦИЯ ПРОВЕРКИ ---
+async def check_players_availability(bot: Bot, db: Database, chat_id: int, players: list) -> (List[int], Dict[int, str]):
+    """
+    Проверяет, что бот может написать всем игрокам в ЛС.
+    Возвращает (list_of_failed_ids, dict_of_player_names)
+    """
+    failed_to_contact = []
+    player_names = {} # {user_id: first_name}
+    
+    player_ids = [p[1] for p in players] # p[1] это user_id
+    
+    for user_id in player_ids:
+        try:
+            db_user = await db.get_user_by_id(user_id)
+            player_names[user_id] = html.quote(db_user[0]) if db_user else f"Игрок {user_id}"
+            
+            await bot.send_chat_action(chat_id=user_id, action='typing')
+            await asyncio.sleep(0.1) # small delay
+        except Exception as e:
+            logging.warning(f"[Mafia {chat_id}] Не удалось связаться с {user_id}: {e}")
+            failed_to_contact.append(user_id)
+            
+    return failed_to_contact, player_names
+# --- --- ---
+
 # --- ЯДРО ИГРЫ: РАЗДАЧА РОЛЕЙ ---
-async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, settings: SettingsManager, players: list):
+async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, settings: SettingsManager, players: list, player_names: Dict[int, str]):
+    """
+    Вызывается из lobby.py ПОСЛЕ того, как check_players_availability прошла успешно.
+    """
     logging.info(f"[Mafia {chat_id}] Шаг 2: Раздача ролей...")
     
     player_count = len(players)
-    player_ids = [p[1] for p in players] # p[1] это user_id
+    player_ids = [p[1] for p in players] 
     random.shuffle(player_ids)
     
     roles_config = MAFIA_ROLES_MATRIX.get(player_count)
-    # --- ИСПРАВЛЕНИЕ: Добавлена проверка на случай, если игроков < 5 (хотя лобби не должно)
     if not roles_config:
-        roles_config = MAFIA_ROLES_MATRIX[5] # Берем конфиг для 5 игроков
+        roles_config = MAFIA_ROLES_MATRIX[5] 
         
     roles_list = []
     roles_list.extend([ROLE_MAFIA_LEADER] * roles_config['l'])
@@ -193,21 +213,14 @@ async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, setti
     roles_list.extend([ROLE_DOCTOR] * roles_config['h'])
     roles_list.extend([ROLE_CIVILIAN] * roles_config['c'])
     
-    # Если ролей меньше, чем игроков (из-за округления), добиваем мирами
     while len(roles_list) < player_count:
         roles_list.append(ROLE_CIVILIAN)
     
-    # Если ролей больше (на всякий), урезаем
     roles_list = roles_list[:player_count]
     random.shuffle(roles_list)
     
-    assigned_roles = {} # {user_id: role_key}
-    mafia_team_info = {} # {user_id: "Name (Role)"}
-    
-    player_names = {} # {user_id: first_name}
-    for user_id in player_ids:
-        db_user = await db.get_user_by_id(user_id)
-        player_names[user_id] = html.quote(db_user[0]) if db_user else f"Игрок {user_id}"
+    assigned_roles = {} 
+    mafia_team_info = {} 
         
     for i, user_id in enumerate(player_ids):
         role = roles_list[i]
@@ -236,14 +249,13 @@ async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, setti
                     text += f"• {mafia_name}\n"
                     
         tasks.append(
-            bot.send_message(user_id, text, parse_mode="HTML")
+            bot.send_message(chat_id=user_id, text=text, parse_mode="HTML") # ✅ ИСПРАВЛЕНО
         )
 
     try:
         await asyncio.gather(*tasks)
     except Exception as e:
         logging.error(f"[Mafia {chat_id}] Ошибка при рассылке ролей: {e}")
-        # Не останавливаем игру, т.к. роли в БД уже записаны
         pass 
 
     await db.update_mafia_game_status(chat_id, "night_1", day_count=1)
@@ -252,13 +264,15 @@ async def distribute_roles_and_start(chat_id: int, bot: Bot, db: Database, setti
     message_id = game_db[1]
     
     with suppress(TelegramBadRequest):
-        await bot.unpin_chat_message(chat_id, message_id)
+        await bot.unpin_chat_message(chat_id=chat_id, message_id=message_id)
     
+    # ✅ ИСПРАВЛЕНИЕ Pydantic V2
     await bot.edit_message_text(
-        ("🌙 <b>НАСТУПАЕТ НОЧЬ 1</b> 🌙\n\n"
-         "Все роли розданы в ЛС! Бар погружается в тишину.\n"
-         "Активные роли делают свой ход..."),
-        chat_id, message_id,
+        text=("🌙 <b>НАСТУПАЕТ НОЧЬ 1</b> 🌙\n\n"
+              "Все роли розданы в ЛС! Бар погружается в тишину.\n"
+              "Активные роли делают свой ход..."),
+        chat_id=chat_id, 
+        message_id=message_id,
         reply_markup=None 
     )
     
@@ -280,7 +294,6 @@ async def night_timer_task(game: GameManager):
     logging.info(f"[Mafia {game.chat_id}] Ночной таймер истек. Подводим итоги...")
     
     tasks = []
-    # Снимаем FSM-состояние, чтобы мафия не могла общаться в ЛС
     for user_id in game.get_alive_players(MAFIA_TEAM_ROLES):
         fsm_context = FSMContext(game.bot, user_id=user_id, chat_id=user_id)
         tasks.append(fsm_context.clear())
@@ -341,7 +354,6 @@ async def start_night_phase(chat_id: int, bot: Bot, db: Database, settings: Sett
     logging.info(f"[Mafia {chat_id}] Ночь {day_count} началась.")
     await db.update_mafia_game_status(chat_id, f"night_{day_count}", day_count=day_count)
     
-    # Сбрасываем старый менеджер, если он был, и создаем новый
     if chat_id in active_game_managers:
         del active_game_managers[chat_id]
         
@@ -353,15 +365,16 @@ async def start_night_phase(chat_id: int, bot: Bot, db: Database, settings: Sett
     tasks = []
     alive_players = game.get_alive_players()
     
-    # Сообщение в чат
     game_db = await db.get_mafia_game(chat_id)
-    message_id = game_db[1] # Cообщение, которое было лобби
+    message_id = game_db[1] 
     
     with suppress(TelegramBadRequest):
+        # ✅ ИСПРАВЛЕНИЕ Pydantic V2
         await bot.edit_message_text(
-            f"🌙 <b>НАСТУПАЕТ НОЧЬ {day_count}</b> 🌙\n\n"
-            "Бар погружается в тишину. Активные роли делают свой ход...",
-            chat_id, message_id,
+            text=f"🌙 <b>НАСТУПАЕТ НОЧЬ {day_count}</b> 🌙\n\n"
+                 "Бар погружается в тишину. Активные роли делают свой ход...",
+            chat_id=chat_id, 
+            message_id=message_id,
             reply_markup=None 
         )
     
@@ -372,7 +385,7 @@ async def start_night_phase(chat_id: int, bot: Bot, db: Database, settings: Sett
         
         if keyboard:
             tasks.append(
-                bot.send_message(user_id, "Выберите ваш ход:", reply_markup=keyboard)
+                bot.send_message(chat_id=user_id, text="Выберите ваш ход:", reply_markup=keyboard) # ✅ ИСПРАВЛЕНО
             )
         
         if role in MAFIA_TEAM_ROLES:
@@ -420,26 +433,27 @@ async def cq_mafia_night_vote(callback: CallbackQuery, callback_data: MafiaNight
     await game_manager.db.reset_mafia_player_inactive(game_id, user_id)
     game_manager.night_voted_users.add(user_id)
     
+    # ✅ ИСПРАВЛЕНИЕ Pydantic V2
     if action == "kill":
         game_manager.night_votes['kill'][user_id] = target_user_id
-        await callback.message.edit_text(f"✅ Ваш голос принят: 'пролить' <b>{target_name}</b>.", parse_mode="HTML")
+        await callback.message.edit_text(text=f"✅ Ваш голос принят: 'пролить' <b>{target_name}</b>.", parse_mode="HTML")
         
         voter_name = game_manager.get_player_name(user_id)
         tasks = []
         for mafia_id in game_manager.get_alive_players(MAFIA_TEAM_ROLES):
             if mafia_id != user_id: 
                 tasks.append(
-                    bot.send_message(mafia_id, f"🗳️ <i>{voter_name}</i> предлагает выгнать <i>{target_name}</i>.")
+                    bot.send_message(chat_id=mafia_id, text=f"🗳️ <i>{voter_name}</i> предлагает выгнать <i>{target_name}</i>.")
                 )
         await asyncio.gather(*tasks)
 
     elif action == "check":
         game_manager.night_votes['check'][user_id] = target_user_id
-        await callback.message.edit_text(f"✅ Вы решили проверить <b>{target_name}</b>. Ожидайте рассвета...", parse_mode="HTML")
+        await callback.message.edit_text(text=f"✅ Вы решили проверить <b>{target_name}</b>. Ожидайте рассвета...", parse_mode="HTML")
 
     elif action == "heal":
         game_manager.night_votes['heal'][user_id] = target_user_id
-        await callback.message.edit_text(f"✅ Вы решили спасти <b>{target_name}</b>. Ожидайте рассвета...", parse_mode="HTML")
+        await callback.message.edit_text(text=f"✅ Вы решили спасти <b>{target_name}</b>. Ожидайте рассвета...", parse_mode="HTML")
 
     elif action == "self_heal":
         player_data = await game_manager.db.get_mafia_player(game_id, user_id)
@@ -451,8 +465,8 @@ async def cq_mafia_night_vote(callback: CallbackQuery, callback_data: MafiaNight
         await game_manager.db.set_mafia_player_self_heal(game_id, user_id)
         
         await callback.message.edit_text(
-            f"✅ Вы использовали свое <b>единственное самолечение</b>. "
-            f"Больше вы себя спасти не можете. Ожидайте рассвета...",
+            text=f"✅ Вы использовали свое <b>единственное самолечение</b>. "
+                 f"Больше вы себя спасти не можете. Ожидайте рассвета...",
             parse_mode="HTML"
         )
     
@@ -486,7 +500,7 @@ async def handle_mafia_chat(message: Message, bot: Bot, state: FSMContext):
     for mafia_id in game_manager.get_alive_players(MAFIA_TEAM_ROLES):
         if mafia_id != user_id: 
             tasks.append(
-                bot.send_message(mafia_id, text_to_send, parse_mode="HTML")
+                bot.send_message(chat_id=mafia_id, text=text_to_send, parse_mode="HTML") # ✅ ИСПРАВЛЕНО
             )
             
     await asyncio.gather(*tasks)
@@ -515,7 +529,6 @@ async def end_night_phase(game: GameManager):
         
         if len(most_voted) > 0:
             top_target, top_count = most_voted[0]
-            # Проверяем на ничью
             is_tie = sum(1 for target, count in vote_counts.items() if count == top_count) > 1
             if not is_tie:
                 mafia_kill_target = top_target
@@ -571,11 +584,11 @@ async def end_night_phase(game: GameManager):
             check_result_text += "Он(а) не Трезвенник."
             
         with suppress(TelegramBadRequest):
-            await game.bot.send_message(detective_id, check_result_text, parse_mode="HTML")
+            # ✅ ИСПРАВЛЕНИЕ Pydantic V2
+            await game.bot.send_message(chat_id=detective_id, text=check_result_text, parse_mode="HTML")
             
-    # Проверяем победу
     if await check_for_win_condition(game):
-        return # (Функция check_for_win_condition сама завершит игру)
+        return 
 
     await start_morning_phase(game, final_killed_user_id, was_saved, afk_kicked_players)
 
@@ -612,7 +625,7 @@ async def start_morning_phase(game: GameManager, killed_user_id: int, was_saved:
     for i, user_id in enumerate(alive_players):
         report += f"{i+1}. {game.get_player_name(user_id)}\n"
         
-    await game.bot.send_message(chat_id, report, parse_mode="HTML")
+    await game.bot.send_message(chat_id=chat_id, text=report, parse_mode="HTML") # ✅ ИСПРАВЛЕНО
     
     if killed_user_id:
         task = asyncio.create_task(last_word_task(game, killed_user_id))
@@ -626,7 +639,12 @@ async def last_word_task(game: GameManager, killed_user_id: int):
     try:
         fsm_context = FSMContext(game.bot, user_id=killed_user_id, chat_id=killed_user_id)
         await fsm_context.set_state(MafiaGameStates.awaiting_last_word)
-        await game.bot.send_message(killed_user_id, "У вас есть <b>30 секунд</b> на последнее слово. Напишите его в этот чат.", parse_mode="HTML")
+        # ✅ ИСПРАВЛЕНИЕ Pydantic V2
+        await game.bot.send_message(
+            chat_id=killed_user_id, 
+            text="У вас есть <b>30 секунд</b> на последнее слово. Напишите его в этот чат.", 
+            parse_mode="HTML"
+        )
     except Exception as e:
         logging.warning(f"[Mafia {game.chat_id}] Не удалось отправить запрос на 'последнее слово' игроку {killed_user_id}: {e}")
         await start_day_discussion(game)
@@ -661,11 +679,16 @@ async def handle_last_word(message: Message, bot: Bot, state: FSMContext):
     name = game_manager.get_player_name(user_id)
     text = html.quote(message.text[:200]) # Ограничим длину
     
-    await bot.send_message(game_id, f"📣 <b>{name}</b> крикнул(а) перед смертью:\n<i>«{text}»</i>", parse_mode="HTML")
+    # ✅ ИСПРАВЛЕНИЕ Pydantic V2
+    await bot.send_message(
+        chat_id=game_id, 
+        text=f"📣 <b>{name}</b> крикнул(а) перед смертью:\n<i>«{text}»</i>", 
+        parse_mode="HTML"
+    )
     
     if game_manager.last_word_task and not game_manager.last_word_task.done():
         game_manager.last_word_task.cancel()
-        await start_day_discussion(game_manager) # Запускаем день немедленно
+        await start_day_discussion(game_manager) 
     
 
 # --- ЯДРО ИГРЫ: ФАЗА ДНЯ (Обсуждение) ---
@@ -690,11 +713,12 @@ async def start_day_discussion(game: GameManager):
     await game.db.update_mafia_game_status(chat_id, f"day_discussion_{day_count}")
     
     time_str = format_time_left(game.settings.mafia_day_timer)
+    # ✅ ИСПРАВЛЕНИЕ Pydantic V2
     await game.bot.send_message(
-        chat_id,
-        f"☀️ <b>Начинается обсуждение! (День {day_count})</b> ☀️\n\n"
-        f"У вас есть <b>{time_str}</b>, чтобы обсудить, кто Трезвенник.\n"
-        f"В чате включен режим <b>'Только Текст'</b> (GIF, стикеры и медиа запрещены).",
+        chat_id=chat_id,
+        text=f"☀️ <b>Начинается обсуждение! (День {day_count})</b> ☀️\n\n"
+             f"У вас есть <b>{time_str}</b>, чтобы обсудить, кто Трезвенник.\n"
+             f"В чате включен режим <b>'Только Текст'</b> (GIF, стикеры и медиа запрещены).",
         parse_mode="HTML"
     )
     
@@ -727,7 +751,7 @@ async def end_day_vote_nominating(game: GameManager):
     
     votes = game.day_votes_nominations
     if not votes:
-        await game.bot.send_message(chat_id, "⚖️ Никто не голосовал. Суд Линча отменяется. Наступает ночь.")
+        await game.bot.send_message(chat_id=chat_id, text="⚖️ Никто не голосовал. Суд Линча отменяется. Наступает ночь.")
         await start_night_phase(game.chat_id, game.bot, game.db, game.settings, game.day_count + 1)
         return
 
@@ -735,14 +759,14 @@ async def end_day_vote_nominating(game: GameManager):
     most_voted = vote_counts.most_common(2) 
 
     if not most_voted or most_voted[0][1] == 1: 
-        await game.bot.send_message(chat_id, "⚖️ Ни один кандидат не набрал достаточного числа голосов ( > 1). Суд Линча отменяется. Наступает ночь.")
+        await game.bot.send_message(chat_id=chat_id, text="⚖️ Ни один кандидат не набрал достаточного числа голосов ( > 1). Суд Линча отменяется. Наступает ночь.")
         await start_night_phase(game.chat_id, game.bot, game.db, game.settings, game.day_count + 1)
         return
         
     candidate_id, top_count = most_voted[0]
     
     if len(most_voted) > 1 and most_voted[1][1] == top_count:
-        await game.bot.send_message(chat_id, "⚖️ Голоса разделились. Суд Линча отменяется. Наступает ночь.")
+        await game.bot.send_message(chat_id=chat_id, text="⚖️ Голоса разделились. Суд Линча отменяется. Наступает ночь.")
         await start_night_phase(game.chat_id, game.bot, game.db, game.settings, game.day_count + 1)
         return
 
@@ -779,11 +803,12 @@ async def start_day_vote_nominating(game: GameManager):
     await game.db.update_mafia_game_status(chat_id, f"day_vote_nominate_{day_count}")
     
     time_str = format_time_left(game.settings.mafia_vote_timer)
+    # ✅ ИСПРАВЛЕНИЕ Pydantic V2
     await game.bot.send_message(
-        chat_id,
-        f"⚖️ <b>Обсуждение закончено!</b> ⚖️\n\n"
-        f"Начинается <b>Номинация</b>. У вас есть <b>{time_str}</b>, чтобы проголосовать в ЛС.\n"
-        f"В чате включен режим <b>'Полной Тишины'</b>.",
+        chat_id=chat_id,
+        text=f"⚖️ <b>Обсуждение закончено!</b> ⚖️\n\n"
+             f"Начинается <b>Номинация</b>. У вас есть <b>{time_str}</b>, чтобы проголосовать в ЛС.\n"
+             f"В чате включен режим <b>'Полной Тишины'</b>.",
         parse_mode="HTML"
     )
     
@@ -792,7 +817,7 @@ async def start_day_vote_nominating(game: GameManager):
     for user_id in alive_players:
         keyboard = await generate_day_nominate_keyboard(game, user_id)
         tasks.append(
-            game.bot.send_message(user_id, "Кого вы номинируете на выгон?", reply_markup=keyboard)
+            game.bot.send_message(chat_id=user_id, text="Кого вы номинируете на выгон?", reply_markup=keyboard) # ✅ ИСПРАВЛЕНО
         )
         
     await asyncio.gather(*tasks)
@@ -832,7 +857,8 @@ async def cq_mafia_day_vote_nominate(callback: CallbackQuery, callback_data: Maf
     
     game_manager.day_votes_nominations[user_id] = target_user_id
     
-    await callback.message.edit_text(f"✅ Вы номинировали на выгон: <b>{target_name}</b>.", parse_mode="HTML")
+    # ✅ ИСПРАВЛЕНИЕ Pydantic V2
+    await callback.message.edit_text(text=f"✅ Вы номинировали на выгон: <b>{target_name}</b>.", parse_mode="HTML")
     await callback.answer()
 
 
@@ -861,11 +887,10 @@ async def end_day_vote_lynching(game: GameManager):
     candidate_id = game.lynch_candidate_id
     candidate_name = game.get_player_name(candidate_id)
     
-    # 1. Убираем кнопки
     with suppress(TelegramBadRequest):
-        await game.bot.edit_message_reply_markup(chat_id, game.lynch_message_id, reply_markup=None)
+        # ✅ ИСПРАВЛЕНИЕ Pydantic V2
+        await game.bot.edit_message_reply_markup(chat_id=chat_id, message_id=game.lynch_message_id, reply_markup=None)
         
-    # 2. Считаем голоса
     votes = game.day_votes_lynch.values()
     lynch_votes = sum(1 for v in votes if v == 'lynch')
     pardon_votes = sum(1 for v in votes if v == 'pardon')
@@ -874,35 +899,34 @@ async def end_day_vote_lynching(game: GameManager):
     
     if is_lynched:
         logging.info(f"[Mafia {chat_id}] Игрок {candidate_id} выгнан Судом Линча.")
-        # "Убиваем" игрока
         await game.db.set_mafia_player_alive(chat_id, candidate_id, is_alive=False)
         game.players[candidate_id]['is_alive'] = False
         
         role_key = game.players[candidate_id]['role']
         role_name = ROLE_NAMES_RU.get(role_key, "Неизвестный")
         
+        # ✅ ИСПРАВЛЕНИЕ Pydantic V2
         await game.bot.send_message(
-            chat_id,
-            f"⚖️ <b>Приговор вынесен!</b> ⚖️\n\n"
-            f"Игрок <b>{candidate_name}</b> был(а) изгнан(а) из бара! ({lynch_votes} ⬆️ vs {pardon_votes} ⬇️)\n"
-            f"Он(а) был(а)... <b>{role_name}</b>!",
+            chat_id=chat_id,
+            text=f"⚖️ <b>Приговор вынесен!</b> ⚖️\n\n"
+                 f"Игрок <b>{candidate_name}</b> был(а) изгнан(а) из бара! ({lynch_votes} ⬆️ vs {pardon_votes} ⬇️)\n"
+                 f"Он(а) был(а)... <b>{role_name}</b>!",
             parse_mode="HTML"
         )
     else:
         logging.info(f"[Mafia {chat_id}] Игрок {candidate_id} помилован Судом Линча.")
+        # ✅ ИСПРАВЛЕНИЕ Pydantic V2
         await game.bot.send_message(
-            chat_id,
-            f"⚖️ <b>Игрок помилован!</b> ⚖️\n\n"
-            f"<b>{candidate_name}</b> остается в баре. ({lynch_votes} ⬆️ vs {pardon_votes} ⬇️)\n",
+            chat_id=chat_id,
+            text=f"⚖️ <b>Игрок помилован!</b> ⚖️\n\n"
+                 f"<b>{candidate_name}</b> остается в баре. ({lynch_votes} ⬆️ vs {pardon_votes} ⬇️)\n",
             parse_mode="HTML"
         )
         
-    # 3. Проверяем победу (т.к. игрок мог умереть)
     if is_lynched:
         if await check_for_win_condition(game):
-            return # Игра окончена
+            return 
             
-    # 4. Если игра не окончена, запускаем следующую ночь
     await start_night_phase(game.chat_id, game.bot, game.db, game.settings, game.day_count + 1)
 
 
@@ -926,16 +950,17 @@ async def start_day_vote_lynching(game: GameManager):
         ]
     ])
     
+    # ✅ ИСПРАВЛЕНИЕ Pydantic V2
     msg = await game.bot.send_message(
-        chat_id,
-        f"⚖️ <b>СУД ЛИНЧА</b> ⚖️\n\n"
-        f"На выгон номинирован: <b>{candidate_name}</b>\n"
-        f"Все живые игроки, решите его(ее) судьбу. У вас <b>{time_str}</b>.\n"
-        f"В чате режим: <b>'Только живые, только текст'</b>.",
+        chat_id=chat_id,
+        text=f"⚖️ <b>СУД ЛИНЧА</b> ⚖️\n\n"
+             f"На выгон номинирован: <b>{candidate_name}</b>\n"
+             f"Все живые игроки, решите его(ее) судьбу. У вас <b>{time_str}</b>.\n"
+             f"В чате режим: <b>'Только живые, только текст'</b>.",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
-    game.lynch_message_id = msg.message_id # Сохраняем ID, чтобы убрать кнопки
+    game.lynch_message_id = msg.message_id 
     
     task = asyncio.create_task(lynch_vote_timer_task(game))
     game.lynch_vote_timer_task = task
@@ -983,7 +1008,6 @@ async def check_for_win_condition(game: GameManager) -> bool:
     """
     chat_id = game.chat_id
     
-    # Обновляем состояние (т.к. кто-то мог умереть)
     alive_mafia = game.get_alive_players(MAFIA_TEAM_ROLES)
     alive_civilians = game.get_alive_players(CIVILIAN_TEAM_ROLES)
     
@@ -1010,14 +1034,12 @@ async def cleanup_and_end_game(game: GameManager, winner: str):
     """
     chat_id = game.chat_id
     
-    # 1. Отменяем все таймеры (на всякий случай)
     if game.night_timer_task: game.night_timer_task.cancel()
     if game.day_timer_task: game.day_timer_task.cancel()
     if game.last_word_task: game.last_word_task.cancel()
     if game.day_vote_timer_task: game.day_vote_timer_task.cancel()
     if game.lynch_vote_timer_task: game.lynch_vote_timer_task.cancel()
     
-    # 2. Определяем победителей и проигравших
     winners = []
     losers = []
     
@@ -1029,7 +1051,6 @@ async def cleanup_and_end_game(game: GameManager, winner: str):
         else:
             losers.append(user_id)
             
-    # 3. Готовим финальный отчет
     report = "🍻 <b>ИГРА ОКОНЧЕНА!</b> 🍻\n\n"
     if winner == 'mafia':
         report += "<b>Победила команда 🥤 Трезвенников!</b>\n"
@@ -1041,11 +1062,9 @@ async def cleanup_and_end_game(game: GameManager, winner: str):
         role_name = ROLE_NAMES_RU.get(data['role'], "Неизвестный")
         report += f"• {game.get_player_name(user_id)} — {role_name}\n"
         
-    # 4. Начисляем награды
     tasks = []
     report += "\n<b>Награды:</b>\n"
     
-    # Победители
     win_reward = game.settings.mafia_win_reward
     win_auth = game.settings.mafia_win_authority
     for user_id in winners:
@@ -1053,7 +1072,6 @@ async def cleanup_and_end_game(game: GameManager, winner: str):
         tasks.append(game.db.update_mafia_stats(user_id, has_won=True, authority_change=win_auth))
         report += f"• {game.get_player_name(user_id)}: +{win_reward} 🍺, +{win_auth} 👑\n"
 
-    # Проигравшие
     lose_reward = game.settings.mafia_lose_reward
     lose_auth = game.settings.mafia_lose_authority
     for user_id in losers:
@@ -1063,10 +1081,9 @@ async def cleanup_and_end_game(game: GameManager, winner: str):
         
     await asyncio.gather(*tasks)
     
-    # 5. Отправляем отчет
-    await game.bot.send_message(chat_id, report, parse_mode="HTML")
+    # ✅ ИСПРАВЛЕНИЕ Pydantic V2
+    await game.bot.send_message(chat_id=chat_id, text=report, parse_mode="HTML")
     
-    # 6. Чистим все
     await game.db.delete_mafia_game(chat_id)
     if chat_id in active_game_managers:
         del active_game_managers[chat_id]
@@ -1086,36 +1103,30 @@ async def handle_game_moderation_global(message: Message, bot: Bot):
     """
     chat_id = message.chat.id
     if chat_id in active_game_managers:
-        game = active_game_managers[chat_id] # Получаем менеджер
+        game = active_game_managers[chat_id] 
         game_status_row = await game.db.get_mafia_game(chat_id)
-        if not game_status_row: return # Игра закончилась
+        if not game_status_row: return 
         
         game_status = game_status_row[3] # status
         
-        # --- МОДЕРАЦИЯ (ПОЛНАЯ ТИШИНA) ---
-        # Ночь ИЛИ Номинация
         if game_status.startswith('night') or game_status.startswith('day_vote_nominate'):
             with suppress(TelegramBadRequest):
                 await message.delete()
             return
             
-        # --- МОДЕРАЦИЯ ДНЯ (Только Текст) ---
         if game_status.startswith('day_discussion'):
             if message.content_type != 'text':
                  with suppress(TelegramBadRequest):
                     await message.delete()
             return
         
-        # --- МОДЕРАЦИЯ (Суд Линча: Только живые, Только Текст) ---
         if game_status.startswith('day_vote_lynch'):
-            # Проверяем, жив ли игрок
             is_alive = message.from_user.id in game.players and game.players[message.from_user.id]['is_alive']
             
             if not is_alive:
                  with suppress(TelegramBadRequest):
-                    await message.delete() # Удаляем мертвых и зрителей
-            # Проверяем на медиа
+                    await message.delete() 
             elif message.content_type != 'text':
                  with suppress(TelegramBadRequest):
-                    await message.delete() # Удаляем медиа
+                    await message.delete() 
             return
