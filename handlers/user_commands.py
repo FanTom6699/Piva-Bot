@@ -1,7 +1,7 @@
 # handlers/user_commands.py
 import random
 from datetime import datetime, timedelta
-from aiogram import Router, Bot, html # <-- Импортируем html
+from aiogram import Router, Bot, html
 from aiogram.types import Message
 from aiogram.filters import Command
 
@@ -76,13 +76,14 @@ async def cmd_beer(message: Message, bot: Bot, db: Database, settings: SettingsM
                 return # Выходим, так как джекпот заменяет обычный /beer
 
         # 5. Обычный /beer
-        if random.choice([True, False, False]): # 33% шанс выиграть
+        # --- ✅ ИЗМЕНЕН ШАНС (40% Победа / 60% Поражение) ---
+        if random.choice([True, True, False, False, False]): 
             rating_change = random.randint(5, 15)
             new_rating = current_rating + rating_change
             await db.update_beer_data(user_id, new_rating)
             await message.reply(random.choice(BEER_WIN_PHRASES).format(rating_change=rating_change), parse_mode='HTML')
         
-        else: # 66% шанс проиграть
+        else: # 60% шанс проиграть
             rating_loss = random.randint(1, 5)
             if current_rating > 0:
                 new_rating = max(0, current_rating - rating_loss)
@@ -126,7 +127,7 @@ async def cmd_top(message: Message, bot: Bot, db: Database):
         
     await message.answer(top_text, parse_mode='HTML')
 
-# --- ✅✅✅ ИСПРАВЛЕННАЯ КОМАНДА ПРОФИЛЯ (/me) (Текстовая версия) ✅✅✅ ---
+# --- Профиль (/me) (Текстовая версия) ---
 @user_commands_router.message(Command("me", "profile"))
 async def cmd_me(message: Message, bot: Bot, db: Database):
     user = message.from_user
@@ -161,7 +162,7 @@ async def cmd_me(message: Message, bot: Bot, db: Database):
         except (ValueError, TypeError):
             reg_date_str = "Давно..." # На случай, если в БД старая дата
 
-    # --- ✅ НОВЫЙ ТЕКСТОВЫЙ ПРОФИЛЬ (Без символов рамки) ---
+    # --- ТЕКСТОВЫЙ ПРОФИЛЬ ---
     
     profile_text = (
         f"🍻 <b>ТВОЙ ПРОФИЛЬ</b> 🍻\n\n"
