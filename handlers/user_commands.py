@@ -76,7 +76,7 @@ async def cmd_beer(message: Message, bot: Bot, db: Database, settings: SettingsM
                 return # Выходим, так как джекпот заменяет обычный /beer
 
         # 5. Обычный /beer
-        # --- ✅ ИЗМЕНЕН ШАНС (40% Победа / 60% Поражение) ---
+        # --- ✅ "ЗОЛОТАЯ СЕРЕДИНА" (40% Победа / 60% Поражение) ---
         if random.choice([True, True, False, False, False]): 
             rating_change = random.randint(5, 15)
             new_rating = current_rating + rating_change
@@ -108,7 +108,10 @@ async def cmd_top(message: Message, bot: Bot, db: Database):
     if not top_users: 
         return await message.answer("В баре пока никого нет, чтобы составить топ.")
     
-    max_rating_width = len(str(top_users[0][2])) # Длина рейтинга топ-1
+    # Исправление на случай, если top_users пуст (хотя мы уже проверили)
+    max_rating_width = 0
+    if top_users:
+        max_rating_width = len(str(top_users[0][2])) # Длина рейтинга топ-1
     
     top_text = "🏆 <b>Топ-10 пивных мастеров:</b> 🏆\n\n"
     medals = ["🥇", "🥈", "🥉"]
@@ -127,7 +130,7 @@ async def cmd_top(message: Message, bot: Bot, db: Database):
         
     await message.answer(top_text, parse_mode='HTML')
 
-# --- Профиль (/me) (Текстовая версия) ---
+# --- ✅✅✅ ИСПРАВЛЕННАЯ КОМАНДА ПРОФИЛЯ (/me) (Текстовая версия) ✅✅✅ ---
 @user_commands_router.message(Command("me", "profile"))
 async def cmd_me(message: Message, bot: Bot, db: Database):
     user = message.from_user
@@ -162,7 +165,7 @@ async def cmd_me(message: Message, bot: Bot, db: Database):
         except (ValueError, TypeError):
             reg_date_str = "Давно..." # На случай, если в БД старая дата
 
-    # --- ТЕКСТОВЫЙ ПРОФИЛЬ ---
+    # --- ✅ НОВЫЙ ТЕКСТОВЫЙ ПРОФИЛЬ (Без символов рамки) ---
     
     profile_text = (
         f"🍻 <b>ТВОЙ ПРОФИЛЬ</b> 🍻\n\n"
