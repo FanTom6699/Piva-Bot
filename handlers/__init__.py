@@ -13,9 +13,10 @@ from .game_raid import raid_router
 
 # --- ✅ НОВЫЕ ХЭНДЛЕРЫ Фермы ---
 from .farm import farm_router
-from .farm_updater import farm_router as farm_updater_router
+# ❌❌❌ УБИРАЕМ ОШИБОЧНУЮ СТРОКУ (Она вызывала падение)
+# from .farm_updater import farm_router as farm_updater_router
 from .give import give_router
-from .shop import shop_router # ✅ ВКЛЮЧАЕМ МАГАЗИН
+from .shop import shop_router
 
 main_router = Router()
 main_router.include_routers(
@@ -28,10 +29,10 @@ main_router.include_routers(
     raid_router,
     
     # --- Ферма ---
+    # (farm_updater_router УБРАН, т.к. он не нужен)
     farm_router,
-    farm_updater_router,
     give_router,
-    shop_router, # ✅ РЕГИСТРИРУЕМ МАГАЗИН
+    shop_router,
     
     # --- Команды юзера должны быть последними ---
     user_commands_router
