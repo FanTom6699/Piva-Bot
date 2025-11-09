@@ -1,9 +1,11 @@
 # handlers/give.py
 import logging
-from aiogram import Router, F, Bot, html
+from html import escape # ✅✅✅ ИСПРАВЛЕНИЕ: Импортируем "защиту" из 'html'
+
+# ✅ ИЗМЕНЕНО: 'html' УБРАН из импорта aiogram
+from aiogram import Router, F, Bot
 from aiogram.types import Message
-# ✅ ИЗМЕНЕНО: Убран "CommandPrefix", он вызывал ошибку
-from aiogram.filters import Command 
+from aiogram.filters import Command
 
 from database import Database
 from .common import check_user_registered
@@ -30,8 +32,7 @@ GIVE_HELP_TEXT = (
     "• <code>семя_хмеля</code> (🌱 Семена)"
 )
 
-# --- 1. ХЭНДЛЕР (Срабатывает на /кинуть и !кинуть) ---
-# ✅ ИСПРАВЛЕНО: Command("кинуть", prefix="/!") ловит и /кинуть, и !кинуть
+# --- ХЭНДЛЕР ---
 @give_router.message(Command("кинуть", prefix="/!")) 
 async def cmd_give_item(message: Message, bot: Bot, db: Database):
     
@@ -41,8 +42,7 @@ async def cmd_give_item(message: Message, bot: Bot, db: Database):
     sender = message.from_user
     args = message.text.split()
 
-    # --- 2. ПАРСИНГ И ПРОВЕРКА АРГУМЕНТОВ ---
-    
+    # --- ПАРСИНГ ---
     item_id: str = ""
     quantity: int = 0
     target_user_id: int = 0
@@ -54,19 +54,20 @@ async def cmd_give_item(message: Message, bot: Bot, db: Database):
 
     item_id = args[1].lower()
     if item_id not in ALLOWED_ITEMS:
-        await message.reply(f"⛔ <b>Ошибка!</b>\nНеизвестный ресурс: '<code>{html.escape(item_id)}</code>'.\n\n" + GIVE_HELP_TEXT)
+        # ✅✅✅ ИСПРАВЛЕНИЕ: Используем escape()
+        await message.reply(f"⛔ <b>Ошибка!</b>\nНеизвестный ресурс: '<code>{escape(item_id)}</code>'.\n\n" + GIVE_HELP_TEXT)
         return
         
     item_name = FARM_ITEM_NAMES.get(item_id, item_id)
 
     if not args[2].isdigit() or int(args[2]) <= 0:
-        await message.reply(f"⛔ <b>Ошибка!</b>\nКоличество '<code>{html.escape(args[2])}</code>' должно быть положительным числом.\n\n" + GIVE_HELP_TEXT)
+         # ✅✅✅ ИСПРАВЛЕНИЕ: Используем escape()
+        await message.reply(f"⛔ <b>Ошибка!</b>\nКоличество '<code>{escape(args[2])}</code>' должно быть положительным числом.\n\n" + GIVE_HELP_TEXT)
         return
     
     quantity = int(args[2])
 
-    # --- 3. ПОИСК "ЦЕЛИ" ---
-    
+    # --- ПОИСК "ЦЕЛИ" ---
     if message.reply_to_message:
         target_user = message.reply_to_message.from_user
         if target_user.is_bot:
@@ -90,7 +91,8 @@ async def cmd_give_item(message: Message, bot: Bot, db: Database):
                  
             target_data = await db.get_user_by_username(username)
             if not target_data:
-                await message.reply(f"⛔ <b>Ошибка!</b>\nНе могу найти игрока с <code>@{html.escape(username)}</code> в базе данных.")
+                 # ✅✅✅ ИСПРАВЛЕНИЕ: Используем escape()
+                await message.reply(f"⛔ <b>Ошибка!</b>\nНе могу найти игрока с <code>@{escape(username)}</code> в базе данных.")
                 return
             target_user_id, target_user_name = target_data
         
@@ -114,13 +116,13 @@ async def cmd_give_item(message: Message, bot: Bot, db: Database):
         await message.reply(GIVE_HELP_TEXT)
         return
 
-    # --- 4. ПРОВЕРКА БАЛАНСА "СКЛАДА" ---
+    # --- ПРОВЕРКА БАЛАНСА ---
     sender_inventory = await db.get_user_inventory(sender.id)
     if sender_inventory.get(item_id, 0) < quantity:
         await message.reply(f"⛔ <b>Недостаточно!</b>\nУ тебя {sender_inventory.get(item_id, 0)} {item_name}, а ты пытаешься кинуть {quantity}.")
         return
 
-    # --- 5. АТОМНАЯ ОПЕРАЦИЯ ПЕРЕДАЧИ ---
+    # --- ПЕРЕДАЧА ---
     try:
         success_remove = await db.modify_inventory(sender.id, item_id, -quantity)
         
@@ -136,8 +138,9 @@ async def cmd_give_item(message: Message, bot: Bot, db: Database):
         await message.reply("⛔ <b>Критическая Ошибка!</b>\nПроизошла ошибка базы данных. Ресурсы возвращены тебе.")
         return
 
-    # --- 6. УСПЕХ ---
+    # --- УСПЕХ ---
     await message.reply(
+        # ✅✅✅ ИСПРАВЛЕНИЕ: Используем escape()
         f"✅ <b>Передача Успешна!</b>\n\n"
-        f"<i>{html.escape(sender.full_name)}</i> передал {quantity} {item_name} игроку <i>{html.escape(target_user_name)}</i>!"
+        f"<i>{escape(sender.full_name)}</i> передал {quantity} {item_name} игроку <i>{escape(target_user_name)}</i>!"
     )
