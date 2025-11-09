@@ -2,18 +2,16 @@
 import logging
 from aiogram import Router, F, Bot, html
 from aiogram.types import Message
-from aiogram.filters import Command, CommandPrefix
+# ✅ ИЗМЕНЕНО: Убран "CommandPrefix", он вызывал ошибку
+from aiogram.filters import Command 
 
 from database import Database
 from .common import check_user_registered
-# ✅ ИЗМЕНЕНО: Импортируем "Настройки" из farm_config.py
 from .farm_config import FARM_ITEM_NAMES
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 give_router = Router()
 
-# --- СПИСОК "ПОНЯТНЫХ" НАЗВАНИЙ (Наш План) ---
-# (Берем ключи из FARM_ITEM_NAMES)
 ALLOWED_ITEMS = list(FARM_ITEM_NAMES.keys())
 
 # --- ТЕКСТ "ПОМОЩИ" (Твой План) ---
@@ -33,8 +31,8 @@ GIVE_HELP_TEXT = (
 )
 
 # --- 1. ХЭНДЛЕР (Срабатывает на /кинуть и !кинуть) ---
-@give_router.message(CommandPrefix(prefixes=['/', '!']))
-@give_router.message(Command("кинуть"))
+# ✅ ИСПРАВЛЕНО: Command("кинуть", prefix="/!") ловит и /кинуть, и !кинуть
+@give_router.message(Command("кинуть", prefix="/!")) 
 async def cmd_give_item(message: Message, bot: Bot, db: Database):
     
     if not await check_user_registered(message, bot, db):
@@ -86,7 +84,7 @@ async def cmd_give_item(message: Message, bot: Bot, db: Database):
         
         if target_str.startswith('@'):
             username = target_str[1:]
-            if username.lower() == sender.username.lower():
+            if sender.username and (username.lower() == sender.username.lower()):
                  await message.reply("⛔ Нельзя передать ресурсы самому себе.")
                  return
                  
