@@ -64,9 +64,11 @@ async def farm_background_updater(bot: Bot, db: Database):
                         brew_stats = get_level_data(farm_data.get('brewery_level', 1), BREWERY_UPGRADES)
                         total_reward = brew_stats['reward'] * batch_size
                         
+                        # ✅✅✅ ИСПРАВЛЕНИЕ ЗДЕСЬ ✅✅✅
+                        # (Внешние кавычки '...' , внутренние "...")
                         text_to_send = (
-                            f"🔥 <b>"Пакетная Варка" ({batch_size}x) готова!</b> 🔥\n\n"
-                            f"Заходи в /farm и нажимай [🏭 ЗАБРАТЬ +{total_reward} 🍺]!"
+                            f'🔥 <b>"Пакетная Варка" ({batch_size}x) готова!</b> 🔥\n\n'
+                            f'Заходи в /farm и нажимай [🏭 ЗАБРАТЬ +{total_reward} 🍺]!'
                         )
                     
                     if text_to_send:
