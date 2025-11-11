@@ -8,7 +8,7 @@ from .game_ladder import ladder_router
 from .game_roulette import roulette_router
 from .game_raid import raid_router
 
-# ✅✅✅ НОВЫЕ СТРОКИ ✅✅✅
+# ✅✅✅ ЭТИХ СТРОК У ТЕБЯ НЕТ ✅✅✅
 from .farm import farm_router
 from .shop import shop_router
 # ✅✅✅ КОНЕЦ НОВЫХ СТРОК ✅✅✅
@@ -22,7 +22,7 @@ main_router.include_routers(
     roulette_router,
     raid_router,
     
-    # ✅✅✅ НОВЫЕ СТРОКИ ✅✅✅
+    # ✅✅✅ И ЭТИХ СТРОК У ТЕБЯ НЕТ ✅✅✅
     farm_router,
     shop_router
     # ✅✅✅ КОНЕЦ НОВЫХ СТРОК ✅✅✅
