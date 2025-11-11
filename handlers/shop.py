@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 from database import Database
 from .farm_config import SHOP_PRICES, FARM_ITEM_NAMES
-# ❌❌ УБИРАЕМ: from .farm import FarmCallback ❌❌
+# (Импорт FarmCallback убран отсюда, он теперь локальный в get_shop_menu)
 
 shop_router = Router()
 
@@ -18,81 +18,51 @@ class ShopCallback(CallbackData, prefix="shop"):
     item_id: str = None
     quantity: int = 0
 
-# --- "ДАШБОРД МАГАЗИНА" ---
+# --- ✅✅✅ ПУНКТ 8: ТВОЙ НОВЫЙ get_shop_menu (...) ✅✅✅ ---
 async def get_shop_menu(user_id: int, db: Database, owner_id: int) -> (str, InlineKeyboardMarkup):
-    # ✅✅✅ ДОБАВЛЯЕМ ИМПОРТ СЮДА: ✅✅✅
-    from .farm import FarmCallback 
-    
+    from .farm import FarmCallback  # локальный импорт, чтобы избежать цикличности
+
     balance = await db.get_user_beer_rating(user_id)
-    inventory = await db.get_user_inventory(user_id)
-    
+    inv = await db.get_user_inventory(user_id)
+
     text = (
         f"<b>🏪 Магазин Семян</b>\n"
-        f"<i>Здесь ты покупаешь семена за 🍺 Рейтинг.</i>\n\n"
-        f"<b>У тебя:</b> {balance} 🍺\n"
-        f"<b>На складе:</b>\n"
-        f"• {FARM_ITEM_NAMES['семя_зерна']}: {inventory['семя_зерна']} шт.\n"
-        f"• {FARM_ITEM_NAMES['семя_хмеля']}: {inventory['семя_хмеля']} шт.\n\n"
-        f"--- --- ---\n"
-        f"<b><u>КУПИТЬ СЕМЕНА:</u></b>"
+        f"<i>Покупай семена за 🍺 Рейтинг.</i>\n\n"
+        f"У тебя: <b>{balance} 🍺</b>\n"
+        f"На складе: {FARM_ITEM_NAMES['семя_зерна']}: <b>{inv['семя_зерна']}</b> • "
+        f"{FARM_ITEM_NAMES['семя_хмеля']}: <b>{inv['семя_хмеля']}</b>\n\n"
+        f"<b>Товары:</b>"
     )
-    
-    buttons = []
-    
-    # --- Семя Зерна ---
-    item_id_grain = 'семя_зерна'
-    price_grain = SHOP_PRICES[item_id_grain]
-    text += f"\n• <b>{FARM_ITEM_NAMES[item_id_grain]}</b>\n  <i>(Цена: {price_grain} 🍺)</i>"
-    
-    grain_buttons = []
-    if balance >= price_grain:
-        grain_buttons.append(InlineKeyboardButton(
-            text="Купить 1", 
-            callback_data=ShopCallback(action="buy", owner_id=owner_id, item_id=item_id_grain, quantity=1).pack()
-        ))
-    if balance >= (price_grain * 5):
-        grain_buttons.append(InlineKeyboardButton(
-            text="Купить 5", 
-            callback_data=ShopCallback(action="buy", owner_id=owner_id, item_id=item_id_grain, quantity=5).pack()
-        ))
-    if balance >= (price_grain * 10):
-        grain_buttons.append(InlineKeyboardButton(
-            text="Купить 10", 
-            callback_data=ShopCallback(action="buy", owner_id=owner_id, item_id=item_id_grain, quantity=10).pack()
-        ))
-    buttons.append(grain_buttons)
 
-    # --- Семя Хмеля ---
-    item_id_hops = 'семя_хмеля'
-    price_hops = SHOP_PRICES[item_id_hops]
-    text += f"\n• <b>{FARM_ITEM_NAMES[item_id_hops]}</b>\n  <i>(Цена: {price_hops} 🍺)</i>"
+    def line(item_id: str) -> tuple[str, list]:
+        price = SHOP_PRICES[item_id]
+        name  = FARM_ITEM_NAMES[item_id]
+        text_line = f"\n• {name} — <i>{price} 🍺</i>"
+        btns = []
+        for qty in (1, 5, 10):
+            if balance >= price * qty:
+                btns.append(InlineKeyboardButton(
+                    text=f"Купить {qty}",
+                    callback_data=ShopCallback(action="buy", owner_id=owner_id, item_id=item_id, quantity=qty).pack()
+                ))
+        return text_line, btns
     
-    hops_buttons = []
-    if balance >= price_hops:
-        hops_buttons.append(InlineKeyboardButton(
-            text="Купить 1", 
-            callback_data=ShopCallback(action="buy", owner_id=owner_id, item_id=item_id_hops, quantity=1).pack()
-        ))
-    if balance >= (price_hops * 5):
-        hops_buttons.append(InlineKeyboardButton(
-            text="Купить 5", 
-            callback_data=ShopCallback(action="buy", owner_id=owner_id, item_id=item_id_hops, quantity=5).pack()
-        ))
-    if balance >= (price_hops * 10):
-        hops_buttons.append(InlineKeyboardButton(
-            text="Купить 10", 
-            callback_data=ShopCallback(action="buy", owner_id=owner_id, item_id=item_id_hops, quantity=10).pack()
-        ))
-    buttons.append(hops_buttons)
-    
-    buttons.append([
-        InlineKeyboardButton(text="⬅️ Назад на Ферму", callback_data=FarmCallback(action="main_dashboard", owner_id=owner_id).pack())
-    ])
-    
-    return text, InlineKeyboardMarkup(inline_keyboard=buttons)
+    # Хелпер для кнопок (из твоего П.1, но тут локально)
+    def rows(btns, per_row: int) -> list[list]:
+        return [btns[i:i + per_row] for i in range(0, len(btns), per_row)]
+
+    lines_buttons = []
+    add_text, btns = line('семя_зерна');  text += add_text; lines_buttons.append(btns)
+    add_text, btns = line('семя_хмеля');  text += add_text; lines_buttons.append(btns)
+
+    kb = rows([b for row in lines_buttons for b in row], per_row=3)
+    kb.append([InlineKeyboardButton(text="⬅️ Назад на Ферму", callback_data=FarmCallback(action="main_dashboard", owner_id=owner_id).pack())])
+
+    return text, InlineKeyboardMarkup(inline_keyboard=kb)
+# --- КОНЕЦ ПУНКТА 8 ---
 
 
-# --- ХЭНДЛЕРЫ ---
+# --- ХЭНДЛЕРЫ (Без изменений) ---
 
 async def check_shop_owner(callback: CallbackQuery, owner_id: int) -> bool:
     if callback.from_user.id != owner_id:
