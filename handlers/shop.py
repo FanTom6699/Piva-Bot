@@ -22,7 +22,8 @@ class ShopCallback(CallbackData, prefix="shop_buy"):
     quantity: int
     owner_id: int
 
-# --- RENDER: МЕНЮ МАГАЗИНА (Твой Дизайн!) ---
+# --- ✅✅✅ "АДАПТИВНЫЙ" ДИЗАЙН (Piva Bot) ✅✅✅ ---
+# --- RENDER: МЕНЮ МАГАЗИНА ---
 async def get_shop_menu(user_id: int, db: Database, owner_id: int) -> (str, InlineKeyboardMarkup):
     
     balance = await db.get_user_beer_rating(user_id)
@@ -38,16 +39,16 @@ async def get_shop_menu(user_id: int, db: Database, owner_id: int) -> (str, Inli
     price_h = SHOP_PRICES.get(item_h, 0)
     stock_h = inventory.get(item_h, 0)
 
-    # --- Текст (Piva Bot: Реализовал твой ASCII-дизайн) ---
+    # --- Текст (Piva Bot: "Адаптивный" дизайн) ---
     text = (
-        f"<b>╔════════ 🏪 МАГАЗИН ════════╗</b>\n"
-        f"<b>║</b> Баланс игрока: <code>{balance} 🍺</code>\n"
-        f"<b>╚════════════════════════════╝</b>\n\n"
+        f"🏪 <b>МАГАЗИН</b>\n"
+        f"<code>══════════════════</code>\n"
+        f"Баланс: <b>{balance} 🍺</b>\n"
+        f"<code>══════════════════</code>\n\n"
         
-        f"<b>╔══ 🌾 {FARM_ITEM_NAMES[item_g]} ══╗</b>\n"
-        f"<b>║</b> Цена: <code>{price_g} 🍺</code>\n"
-        f"<b>║</b> На складе: <code>{stock_g} шт.</code>\n"
-        f"<b>╚═════════════════════╝</b>"
+        f"🌾 <b>{FARM_ITEM_NAMES[item_g]}</b>\n"
+        f"• Цена: <code>{price_g} 🍺</code>\n"
+        f"• На складе: <code>{stock_g} шт.</code>"
     )
 
     # Кнопки Зерна
@@ -60,10 +61,9 @@ async def get_shop_menu(user_id: int, db: Database, owner_id: int) -> (str, Inli
     ]
 
     text += (
-        f"\n\n<b>╔══ 🌱 {FARM_ITEM_NAMES[item_h]} ══╗</b>\n"
-        f"<b>║</b> Цена: <code>{price_h} 🍺</code>\n"
-        f"<b>║</b> На складе: <code>{stock_h} шт.</code>\n"
-        f"<b>╚═════════════════════╝</b>"
+        f"\n\n🌱 <b>{FARM_ITEM_NAMES[item_h]}</b>\n"
+        f"• Цена: <code>{price_h} 🍺</code>\n"
+        f"• На складе: <code>{stock_h} шт.</code>"
     )
     
     # Кнопки Хмеля
@@ -79,6 +79,7 @@ async def get_shop_menu(user_id: int, db: Database, owner_id: int) -> (str, Inli
     kb.append(back_btn_to_farm(user_id))
     
     return text, InlineKeyboardMarkup(inline_keyboard=kb)
+# --- ---
 
 # --- ХЭНДЛЕР ПОКУПКИ ---
 @shop_router.callback_query(ShopCallback.filter(F.action == "buy"))
@@ -115,8 +116,6 @@ async def cq_shop_buy(callback: CallbackQuery, callback_data: ShopCallback, db: 
     except Exception as e:
         logging.error(f"[Shop] Ошибка покупки: {e}")
         await callback.answer(f"⛔ Ошибка базы данных при покупке!", show_alert=True)
-        # (Piva Bot: В случае ошибки, откатывать транзакцию не будем, т.к. у нас нет транзакций,
-        # но в идеале здесь нужен был бы safe_buy)
         return
 
     # --- Обновляем меню Магазина ---
