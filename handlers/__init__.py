@@ -11,6 +11,7 @@ from .game_raid import raid_router
 # ✅✅✅ УБЕДИСЬ, ЧТО ЭТИ СТРОКИ ЕСТЬ ✅✅✅
 from .farm import farm_router
 from .shop import shop_router
+# (Если farm_config.py ругается, что его нет, убедись, что он в папке handlers/)
 # ✅✅✅ КОНЕЦ ✅✅✅
 
 main_router = Router()
