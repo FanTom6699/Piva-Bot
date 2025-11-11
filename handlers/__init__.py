@@ -8,10 +8,10 @@ from .game_ladder import ladder_router
 from .game_roulette import roulette_router
 from .game_raid import raid_router
 
-# ✅✅✅ ЭТИХ СТРОК У ТЕБЯ НЕТ ✅✅✅
+# ✅✅✅ УБЕДИСЬ, ЧТО ЭТИ СТРОКИ ЕСТЬ ✅✅✅
 from .farm import farm_router
 from .shop import shop_router
-# ✅✅✅ КОНЕЦ НОВЫХ СТРОК ✅✅✅
+# ✅✅✅ КОНЕЦ ✅✅✅
 
 main_router = Router()
 main_router.include_routers(
@@ -22,8 +22,8 @@ main_router.include_routers(
     roulette_router,
     raid_router,
     
-    # ✅✅✅ И ЭТИХ СТРОК У ТЕБЯ НЕТ ✅✅✅
+    # ✅✅✅ И ЭТИ СТРОКИ ТОЖЕ ✅✅✅
     farm_router,
     shop_router
-    # ✅✅✅ КОНЕЦ НОВЫХ СТРОК ✅✅✅
+    # ✅✅✅ КОНЕЦ ✅✅✅
 )
