@@ -16,7 +16,8 @@ class Database:
 
     async def initialize(self):
         logging.info("Запуск миграции базы данных...")
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             # --- Таблицы Юзеров, Чатов, Настроек (У тебя уже есть) ---
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS users (
@@ -103,54 +104,65 @@ class Database:
     
     # --- Функции Чатов (Без изменений) ---
     async def add_chat(self, chat_id: int, title: str):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute("INSERT OR REPLACE INTO chats (chat_id, title) VALUES (?, ?)", (chat_id, title))
             await db.commit()
 
     async def remove_chat(self, chat_id: int):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
             await db.commit()
 
     async def get_all_chats(self) -> List[Tuple[int, str]]:
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT chat_id, title FROM chats ORDER BY title")
             return await cursor.fetchall()
 
     async def get_all_chat_ids(self):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT chat_id FROM chats")
             return [row[0] for row in await cursor.fetchall()]
 
     # --- Функции Юзеров (Без изменений) ---
     async def user_exists(self, user_id):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute('SELECT 1 FROM users WHERE user_id = ?', (user_id,))
             return await cursor.fetchone() is not None
 
     async def add_user(self, user_id, first_name, last_name, username):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute(
                 'INSERT INTO users (user_id, first_name, last_name, username, beer_rating) VALUES (?, ?, ?, ?, ?)',
                 (user_id, first_name, last_name, username, 0)
             )
             # --- ✅ НОВОЕ: Сразу выдаем инвентарь фермы ---
+            # (Piva Bot: Эта функция _ensure_inventory вызывается УЖЕ С 'db', 
+            #  поэтому ей (Piva Bot) не нужен 'timeout=20')
             await self._ensure_inventory(db, user_id)
             await db.commit()
             
     async def get_all_user_ids(self):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT user_id FROM users")
             return [row[0] for row in await cursor.fetchall()]
 
     async def get_total_users_count(self):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM users")
             result = await cursor.fetchone()
             return result[0] if result else 0
 
     async def get_user_by_id(self, user_id: int):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute('SELECT first_name, last_name, username FROM users WHERE user_id = ?', (user_id,))
             row = await cursor.fetchone()
             if row:
@@ -159,25 +171,29 @@ class Database:
 
     async def get_user_by_username(self, username: str):
         username = username.lstrip('@')
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute('SELECT user_id, first_name FROM users WHERE username = ?', (username,))
             return await cursor.fetchone()
 
     async def get_user_beer_rating(self, user_id):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute('SELECT beer_rating FROM users WHERE user_id = ?', (user_id,))
             result = await cursor.fetchone()
             return result[0] if result else 0
             
     async def get_last_beer_time(self, user_id):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute('SELECT last_beer_time FROM users WHERE user_id = ?', (user_id,))
             result = await cursor.fetchone()
             return datetime.fromisoformat(result[0]) if result and result[0] else None
 
     async def update_beer_data(self, user_id, new_rating):
         current_time_iso = datetime.now().isoformat()
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute(
                 'UPDATE users SET beer_rating = ?, last_beer_time = ? WHERE user_id = ?',
                 (new_rating, current_time_iso, user_id)
@@ -185,7 +201,8 @@ class Database:
             await db.commit()
 
     async def get_top_users(self, limit=10):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute(
                 'SELECT first_name, last_name, beer_rating FROM users ORDER BY beer_rating DESC LIMIT ?',
                 (limit,)
@@ -193,7 +210,8 @@ class Database:
             return await cursor.fetchall()
 
     async def change_rating(self, user_id, amount: int):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute(
                 'UPDATE users SET beer_rating = beer_rating + ? WHERE user_id = ?',
                 (amount, user_id)
@@ -205,7 +223,8 @@ class Database:
         return await self.get_setting('jackpot')
 
     async def update_jackpot(self, amount: int):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute("UPDATE game_data SET value = value + ? WHERE key = 'jackpot'", (amount,))
             await db.commit()
 
@@ -213,24 +232,28 @@ class Database:
         await self.update_setting('jackpot', 0)
 
     async def get_setting(self, key: str) -> int:
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT value FROM game_data WHERE key = ?", (key,))
             result = await cursor.fetchone()
             return result[0] if result else 0
 
     async def get_all_settings(self) -> Dict[str, int]:
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT key, value FROM game_data")
             return {row[0]: row[1] for row in await cursor.fetchall()}
 
     async def update_setting(self, key: str, value: int):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute("INSERT OR REPLACE INTO game_data (key, value) VALUES (?, ?)", (key, value))
             await db.commit()
     
     # --- Функции Рейдов (Без изменений) ---
     async def create_raid(self, chat_id: int, message_id: int, health: int, reward: int, end_time: datetime):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute(
                 "INSERT INTO active_raids (chat_id, message_id, boss_health, boss_max_health, reward_pool, end_time) VALUES (?, ?, ?, ?, ?, ?)",
                 (chat_id, message_id, health, health, reward, end_time.isoformat())
@@ -239,29 +262,34 @@ class Database:
             await db.commit()
 
     async def get_active_raid(self, chat_id: int):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT * FROM active_raids WHERE chat_id = ?", (chat_id,))
             return await cursor.fetchone() 
 
     async def get_all_active_raids(self):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT * FROM active_raids")
             return await cursor.fetchall()
 
     async def update_raid_health(self, chat_id: int, damage: int):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute("UPDATE active_raids SET boss_health = boss_health - ? WHERE chat_id = ?", (damage, chat_id))
             await db.commit()
             
     async def delete_raid(self, chat_id: int):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute("DELETE FROM active_raids WHERE chat_id = ?", (chat_id,))
             await db.execute("DELETE FROM raid_participants WHERE raid_id = ?", (chat_id,))
             await db.commit()
 
     async def add_raid_participant(self, chat_id: int, user_id: int, damage: int):
         now_iso = datetime.now().isoformat()
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute(
                 """
                 INSERT INTO raid_participants (raid_id, user_id, damage_dealt, last_hit_time)
@@ -275,12 +303,14 @@ class Database:
             await db.commit()
 
     async def get_raid_participant(self, chat_id: int, user_id: int):
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT * FROM raid_participants WHERE raid_id = ? AND user_id = ?", (chat_id, user_id))
             return await cursor.fetchone()
 
     async def get_all_raid_participants(self, chat_id: int) -> List[Tuple[int, int]]:
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute("SELECT user_id, damage_dealt FROM raid_participants WHERE raid_id = ? ORDER BY damage_dealt DESC", (chat_id,))
             return await cursor.fetchall()
 
@@ -300,7 +330,8 @@ class Database:
             )
     
     async def get_user_farm_data(self, user_id: int) -> Dict[str, Any]:
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await self._ensure_farm_data(db, user_id)
             cursor = await db.execute("SELECT * FROM user_farm_data WHERE user_id = ?", (user_id,))
             row = await cursor.fetchone()
@@ -310,8 +341,8 @@ class Database:
                 cursor = await db.execute("SELECT * FROM user_farm_data WHERE user_id = ?", (user_id,))
                 row = await cursor.fetchone()
                 if not row:
-                     logging.error(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось создать farm_data для {user_id}")
-                     return {}
+                         logging.error(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось создать farm_data для {user_id}")
+                         return {}
             
             def to_datetime_safe(iso_str):
                 return datetime.fromisoformat(iso_str) if iso_str else None
@@ -327,7 +358,8 @@ class Database:
             }
 
     async def get_user_plots(self, user_id: int) -> List[Tuple]:
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             cursor = await db.execute(
                 "SELECT plot_num, crop_id, ready_time FROM user_farm_plots WHERE user_id = ?",
                 (user_id,)
@@ -335,7 +367,8 @@ class Database:
             return await cursor.fetchall()
 
     async def get_user_inventory(self, user_id: int) -> Dict[str, int]:
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await self._ensure_inventory(db, user_id)
             cursor = await db.execute(
                 "SELECT item_id, quantity FROM user_farm_inventory WHERE user_id = ?",
@@ -347,7 +380,8 @@ class Database:
 
     async def modify_inventory(self, user_id: int, item_id: str, amount: int) -> bool:
         """(✅ ВАЖНО ДЛЯ МАГАЗИНА) Изменяет кол-во предмета. Возвращает False, если не хватает."""
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await self._ensure_inventory(db, user_id)
             
             await db.execute(
@@ -373,7 +407,8 @@ class Database:
 
     async def plant_crop(self, user_id: int, plot_num: int, crop_id: str, ready_time: datetime) -> bool:
         """(✅ ВАЖНО ДЛЯ УЧАСТКОВ) Сажает урожай. Возвращает False, если участок занят."""
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             try:
                 await db.execute(
                     "INSERT INTO user_farm_plots (user_id, plot_num, crop_id, ready_time) VALUES (?, ?, ?, ?)",
@@ -387,7 +422,8 @@ class Database:
 
     async def harvest_plot(self, user_id: int, plot_num: int) -> str | None:
         """Собирает урожай. Возвращает ID семени (str) или None, если пусто/не готово."""
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             now_iso = datetime.now().isoformat()
             cursor = await db.execute(
                 "SELECT crop_id FROM user_farm_plots WHERE user_id = ? AND plot_num = ? AND ready_time <= ?",
@@ -408,7 +444,8 @@ class Database:
 
     async def start_brewing(self, user_id: int, quantity: int, end_time: datetime):
         """Запускает варку в Пивоварне."""
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await self._ensure_farm_data(db, user_id)
             await db.execute(
                 "UPDATE user_farm_data SET brewery_batch_size = ?, brewery_batch_timer_end = ? WHERE user_id = ?",
@@ -422,17 +459,21 @@ class Database:
 
     async def collect_brewery(self, user_id: int, reward: int):
         """Забирает готовую варку и начисляет рейтинг."""
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute(
                 "UPDATE user_farm_data SET brewery_batch_size = 0, brewery_batch_timer_end = NULL WHERE user_id = ?",
                 (user_id,)
             )
+            # (Piva Bot: Эта функция 'change_rating' вызывается УЖЕ С 'db', 
+            #  поэтому ей (Piva Bot) не нужен 'timeout=20')
             await self.change_rating(user_id, reward)
             await db.commit()
 
     async def start_upgrade(self, user_id: int, building: str, end_time: datetime, cost: int):
         """Запускает апгрейд здания и списывает 🍺."""
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await self._ensure_farm_data(db, user_id) 
             
             await db.execute(
@@ -470,7 +511,8 @@ class Database:
 
     async def finish_upgrade(self, user_id: int, building: str):
         """Завершает апгрейд (вызывается из farm_updater)."""
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             if building == 'field':
                 await db.execute(
                     "UPDATE user_farm_data SET field_level = field_level + 1, field_upgrade_timer_end = NULL WHERE user_id = ?",
@@ -485,7 +527,8 @@ class Database:
 
     async def get_pending_notifications(self) -> List[Tuple]:
         """(Для farm_updater) Находит задачи, которые пора отправить."""
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             now = datetime.now()
             
             cursor_field = await db.execute(
@@ -518,7 +561,8 @@ class Database:
 
     async def mark_notification_sent(self, user_id: int, task_type: str):
         """(Для farm_updater) Помечает уведомление как отправленное."""
-        async with aiosqlite.connect(self.db_name) as db:
+        # (Piva Bot: ФИКС)
+        async with aiosqlite.connect(self.db_name, timeout=20) as db:
             await db.execute(
                 "UPDATE farm_notifications SET is_sent = 1 WHERE user_id = ? AND task_type = ?",
                 (user_id, task_type)
