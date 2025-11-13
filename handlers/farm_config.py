@@ -48,7 +48,6 @@ SHOP_PRICES = {
 }
 
 # --- УЛУЧШЕНИЯ: ПОЛЕ ---
-# (Piva Bot: Без изменений)
 FIELD_UPGRADES = {
     # Lvl: {cost, time_h, plots, chance_x2, grow_time_min: {зерно, хмель}}
     1: {'cost': 0,     'time_h': 0, 'plots': 2, 'chance_x2': 0,  'grow_time_min': {'зерно': 20, 'хмель': 40}},
@@ -63,45 +62,36 @@ FIELD_UPGRADES = {
     10:{'cost': 15000, 'time_h': 12, 'plots': 6, 'chance_x2': 35, 'grow_time_min': {'зерно': 10, 'хмель': 20}},
 }
 
-# --- ✅✅✅ НОВЫЙ БАЛАНС (Piva Bot) ✅✅✅ ---
-# --- УЛУЧШЕНИЯ: ПИВОВАРНЯ ---
-# (Piva Bot: Поднял награды, начиная с 35 🍺)
+# --- ✅✅✅ (Piva Bot) ВОЗВРАЩАЕМ ТАЙМЕР (30 мин) ✅✅✅ ---
 BREWERY_UPGRADES = {
     # Lvl: {cost, time_h, reward, brew_time_min}
-    1:     {'cost': 0,     'time_h': 0, 'reward': 35, 'brew_time_min': 30}, # (Было: 10)
-    2:     {'cost': 150,   'time_h': 1, 'reward': 37, 'brew_time_min': 30}, # (Было: 11)
-    3:     {'cost': 300,   'time_h': 2, 'reward': 40, 'brew_time_min': 25}, # (Было: 12)
-    4:     {'cost': 600,   'time_h': 3, 'reward': 43, 'brew_time_min': 25}, # (Было: 13)
-    5:     {'cost': 1200,  'time_h': 4, 'reward': 45, 'brew_time_min': 20}, # (Было: 15)
-    6:     {'cost': 2500,  'time_h': 5, 'reward': 48, 'brew_time_min': 20}, # (Было: 17)
-    7:     {'cost': 5000,  'time_h': 6, 'reward': 52, 'brew_time_min': 15}, # (Было: 20)
-    8:     {'cost': 8000,  'time_h': 8, 'reward': 56, 'brew_time_min': 15}, # (Было: 23)
-    9:     {'cost': 12000, 'time_h': 10, 'reward': 60, 'brew_time_min': 10}, # (Было: 27)
-    10:    {'cost': 20000, 'time_h': 12, 'reward': 70, 'brew_time_min': 10}, # (Было: 35)
+    1:     {'cost': 0,     'time_h': 0, 'reward': 35, 'brew_time_min': 30},
+    2:     {'cost': 150,   'time_h': 1, 'reward': 37, 'brew_time_min': 30},
+    3:     {'cost': 300,   'time_h': 2, 'reward': 40, 'brew_time_min': 25},
+    4:     {'cost': 600,   'time_h': 3, 'reward': 43, 'brew_time_min': 25},
+    5:     {'cost': 1200,  'time_h': 4, 'reward': 45, 'brew_time_min': 20},
+    6:     {'cost': 2500,  'time_h': 5, 'reward': 48, 'brew_time_min': 20},
+    7:     {'cost': 5000,  'time_h': 6, 'reward': 52, 'brew_time_min': 15},
+    8:     {'cost': 8000,  'time_h': 8, 'reward': 56, 'brew_time_min': 15},
+    9:     {'cost': 12000, 'time_h': 10, 'reward': 60, 'brew_time_min': 10},
+    10:    {'cost': 20000, 'time_h': 12, 'reward': 70, 'brew_time_min': 10},
 }
 # --- --- ---
 
 # --- ФУНКЦИЯ ДЛЯ УЛУЧШЕНИЙ ---
-# (Piva Bot: Я ИСПРАВИЛ get_level_data, чтобы он не крашился на Уровне 11+)
+# (Piva Bot: ФИКС, чтобы не падал на Уровне 11+)
 def get_level_data(level: int, upgrade_data: dict) -> dict:
-    # --- ✅ ФИКС БАГА (Piva Bot): .copy() ---
-    # (Piva Bot: Мы копируем данные, чтобы не испортить
-    #  оригинальный словарь, если level не найден)
     data = upgrade_data.get(level, {}).copy() 
-    # --- ---
     
     max_level_num = max(upgrade_data.keys())
     
     data['max_level'] = (level == max_level_num)
     
-    # (Piva Bot: Если уровень НЕ существует, например 11,
-    #  мы берем данные 10-го уровня, но ставим max_level = True)
     if not data and level > max_level_num:
         data = upgrade_data.get(max_level_num, {}).copy()
         data['max_level'] = True
 
     if not data.get('max_level', False):
-        # Добавляем данные о следующем уровне, если он есть
         next_level_data = upgrade_data.get(level + 1, {})
         data['next_cost'] = next_level_data.get('cost')
         data['next_time_h'] = next_level_data.get('time_h')
