@@ -64,14 +64,14 @@ async def cmd_beer(message: Message, bot: Bot, db: Database, settings: SettingsM
     rating_change = 0
     reply_text = ""
     
-    if win_roll > 50: # (50% шанс выиграть)
-        rating_change = random.randint(25, 75)
+    if win_roll > 35: # (65% шанс выиграть: 100 - 65 = 35)
+        rating_change = random.randint(1, 15) # ✅ Победа: +1 до +15
         reply_text = random.choice(BEER_WIN_PHRASES).format(rating_change=rating_change)
     else:
         # (Проверяем текущий баланс ПЕРЕД списанием)
         current_rating = await db.get_user_beer_rating(user_id)
         if current_rating > 0:
-            rating_loss = random.randint(5, 25)
+            rating_loss = random.randint(1, 10) # ✅ Проигрыш: -1 до -10
             # (Не даем уйти в минус)
             rating_change = -min(current_rating, rating_loss) 
             reply_text = random.choice(BEER_LOSE_PHRASES_RATING).format(rating_loss=abs(rating_change))
@@ -79,9 +79,7 @@ async def cmd_beer(message: Message, bot: Bot, db: Database, settings: SettingsM
             rating_change = 0 # (Не меняем рейтинг)
             reply_text = random.choice(BEER_LOSE_PHRASES_ZERO)
 
-    # --- ✅✅✅ ВОТ ИСПРАВЛЕНИЕ: ✅✅✅ ---
-    # (Раньше здесь была 1 функция, теперь 2)
-    
+    # --- ✅✅✅ ИСПРАВЛЕНИЕ: ✅✅✅ ---
     # 1. Сначала меняем рейтинг (если он изменился)
     if rating_change != 0:
         await db.change_rating(user_id, rating_change)
