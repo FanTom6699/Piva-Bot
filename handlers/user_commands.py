@@ -76,7 +76,7 @@ async def cmd_beer(message: Message, bot: Bot, db: Database, settings: SettingsM
                 return # Выходим, так как джекпот заменяет обычный /beer
 
         # 5. Обычный /beer
-        # --- ✅ "ЗОЛОТАЯ СЕРЕДИНА" (40% Победа / 60% Поражение) ---
+        # --- "ЗОЛОТАЯ СЕРЕДИНА" (40% Победа / 60% Поражение) ---
         if random.choice([True, True, False, False, False]): 
             rating_change = random.randint(5, 15)
             new_rating = current_rating + rating_change
@@ -128,7 +128,7 @@ async def cmd_top(message: Message, bot: Bot, db: Database):
         
     await message.answer(top_text, parse_mode='HTML')
 
-# --- ✅✅✅ КОМАНДА ПРОФИЛЯ (/me) (ТВОЙ КОД) ✅✅✅ ---
+# --- КОМАНДА ПРОФИЛЯ (/me) ---
 @user_commands_router.message(Command("me", "profile"))
 async def cmd_me(message: Message, bot: Bot, db: Database):
     user = message.from_user
@@ -145,7 +145,7 @@ async def cmd_me(message: Message, bot: Bot, db: Database):
 
     # 3. Форматирование данных
     
-    # --- ✅ ТВОЙ НОВЫЙ СПИСОК СТАТУСОВ (20 шт.) ---
+    # --- ТВОЙ НОВЫЙ СПИСОК СТАТУСОВ (20 шт.) ---
     status = "👣 Прохожий"
     if rating >= 100:   status = "🍻 Промочил Горло"
     if rating >= 500:   status = "🧐 Завсегдатай"
@@ -201,8 +201,7 @@ async def cmd_me(message: Message, bot: Bot, db: Database):
     await message.answer(profile_text, parse_mode='HTML')
 
 
-# --- ✅✅✅ НОВЫЙ КОД ДЛЯ !НАПОИТЬ ✅✅✅ ---
-
+# --- КОД ДЛЯ !НАПОИТЬ ---
 @user_commands_router.message(Command(commands=["напоить", "Напоить"], prefix="!"))
 async def cmd_give_beer(message: Message, bot: Bot, db: Database):
     
@@ -249,7 +248,6 @@ async def cmd_give_beer(message: Message, bot: Bot, db: Database):
             
             if target_input.startswith('@'):
                 username = target_input.lstrip('@')
-                # (Используем ОБНОВЛЕННУЮ функцию из database.py)
                 user_data = await db.get_user_by_username(username)
                 if user_data:
                     target_id = user_data[0] # user_id
@@ -260,10 +258,8 @@ async def cmd_give_beer(message: Message, bot: Bot, db: Database):
 
             elif target_input.isdigit():
                 target_id = int(target_input)
-                # (Используем НОВУЮ функцию из database.py)
                 user_data = await db.get_user_by_id(target_id)
                 if user_data:
-                    # user_data[0] это first_name, [1] это last_name
                     target_name = html.quote(user_data[0] + (f" {user_data[1]}" if user_data[1] else ""))
                 else:
                     await message.reply(f"Не могу найти пользователя с ID {target_id} в базе данных бота.")
@@ -287,7 +283,6 @@ async def cmd_give_beer(message: Message, bot: Bot, db: Database):
             await message.reply("Нельзя напоить самого себя! 😅")
             return
 
-        # (Проверяем, что ПОЛУЧАТЕЛЬ зареган)
         if not await db.user_exists(target_id):
             await message.reply(f"<b>{target_name}</b> еще не зарегистрирован(а) в боте. Он(а) должен(на) сначала написать <code>/start</code> боту в ЛС.")
             return
@@ -302,12 +297,15 @@ async def cmd_give_beer(message: Message, bot: Bot, db: Database):
         await db.change_rating(sender_id, -amount)
         await db.change_rating(target_id, amount)
         
-        # 6. Успех
-        await message.reply(
-            f"🍻 <b>Угощение!</b> 🍻\n\n"
-            f"<b>{sender_name}</b> угостил(а) <b>{target_name}</b>, передав <b>{amount} 🍺</b>!",
-            parse_mode="HTML"
+        # --- ✅✅✅ ИЗМЕНЕНИЕ ЗДЕСЬ ✅✅✅ ---
+        # 6. Успех (Новый текст по твоему запросу)
+        success_text = (
+            f"🍺 <b>Бармен подаёт!</b>\n"
+            f"<b>{sender_name}</b> угощает <b>{target_name}</b>\n"
+            f"<b>{amount}</b> пива."
         )
+        await message.reply(success_text, parse_mode="HTML")
+        # --- --- ---
 
     except Exception as e:
         await message.reply(f"Что-то пошло не так... Ошибка: {e}")
