@@ -5,14 +5,14 @@ from datetime import datetime # ✅ ИМПОРТ ДЛЯ ИСПРАВЛЕНИЯ
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode # (Лучше использовать явный импорт)
+from aiogram.enums import ParseMode
 
 import config
 from handlers import main_router
 from handlers.game_raid import raid_background_updater, active_raid_tasks
 
 # --- ✅ НОВЫЕ ИМПОРТЫ ФЕРМЫ ---
-# (Ты должен подключить роутеры, чтобы ферма работала)
+# (Подключаем роутеры фермы и магазина)
 from handlers.farm import farm_router
 from handlers.shop import shop_router
 # --- ---
@@ -35,7 +35,7 @@ async def start_active_raid_tasks(bot: Bot, db: Database, settings: SettingsMana
     logging.info(f"Запущено {count} фоновых задач для активных рейдов.")
 
 
-# --- ✅✅✅ НОВАЯ ФОНОВАЯ ЗАДАЧА ФЕРМЫ (С ИСПРАВЛЕНИЕМ) ✅✅✅ ---
+# --- ✅✅✅ ФОНОВАЯ ЗАДАЧА ФЕРМЫ (С ИСПРАВЛЕНИЕМ) ✅✅✅ ---
 async def farm_background_updater(bot: Bot, db: Database):
     """
     (Piva Bot) Эта фоновая задача проверяет таймеры фермы (варку, стройку) 
@@ -66,6 +66,7 @@ async def farm_background_updater(bot: Bot, db: Database):
             for user_id, task_type, data in pending_tasks:
                 text = None
                 if task_type == 'batch':
+                    # (data - это str(batch_size), как мы его и сохраняли)
                     text = f"🍻 (Ферма) Твоя варка (x{data}) готова! Забери награду!"
                 elif task_type == 'field_upgrade':
                     text = f"🌾 (Ферма) Улучшение [Поля] завершено!"
@@ -99,7 +100,8 @@ async def main():
     )
     logging.info("Инициализация Менеджера Настроек...")
     
-    db = Database(db_name='/data/bot_database.db')
+    # (Используем твой путь к БД)
+    db = Database(db_name='/data/bot_database.db') 
     settings_manager = SettingsManager()
     
     await db.initialize()
@@ -107,7 +109,7 @@ async def main():
     
     bot = Bot(
         token=config.BOT_TOKEN, 
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML) # (Явный импорт)
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     
     dp = Dispatcher()
@@ -125,7 +127,6 @@ async def main():
     await start_active_raid_tasks(bot, db, settings_manager)
     asyncio.create_task(farm_background_updater(bot, db)) # <-- ЗАПУСКАЕМ ФЕРМУ
     
-    # (Удаляем 'db' и 'settings' из start_polling, они уже в dp)
     logging.info("Start polling")
     await dp.start_polling(bot)
 
