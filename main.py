@@ -7,12 +7,11 @@ from aiogram.client.default import DefaultBotProperties
 
 import config
 from handlers import main_router
+from handlers.game_raid import raid_background_updater, active_raid_tasks
+# --- ✅ ИСПРАВЛЕНИЕ 1: Импортируем ТОЛЬКО функцию ---
+from handlers.farm_updater import farm_background_updater 
 from database import Database
 from settings import SettingsManager
-
-# --- ✅ ИМПОРТЫ ЗАДАЧ ---
-from handlers.game_raid import raid_background_updater, active_raid_tasks
-from handlers.farm_updater import farm_background_updater, farm_updater_task # ✅ НОВЫЙ ИМПОРТ
 
 async def start_active_raid_tasks(bot: Bot, db: Database, settings: SettingsManager):
     """При старте бота ищет активные рейды в БД и запускает для них фоновые задачи."""
@@ -27,21 +26,11 @@ async def start_active_raid_tasks(bot: Bot, db: Database, settings: SettingsMana
             count += 1
     logging.info(f"Запущено {count} фоновых задач для активных рейдов.")
 
-# --- ✅ НОВАЯ ФУНКЦИЯ ЗАПУСКА ФЕРМЫ ---
-async def start_farm_updater_task(bot: Bot, db: Database):
-    """Запускает фоновую задачу для Фермы (уведомления об апгрейдах)."""
-    global farm_updater_task
-    if farm_updater_task is None:
-        logging.info("Запуск фоновой задачи (Farm Updater)...")
-        farm_updater_task = asyncio.create_task(farm_background_updater(bot, db))
-    else:
-        logging.warning("Фоновая задача (Farm Updater) уже была запущена.")
-# --- ---
 
 async def main():
     logging.basicConfig(level=logging.INFO)
     
-    # (Используем /data/ для Render)
+    # (Путь к БД для Render)
     db = Database(db_name='/data/bot_database.db')
     settings_manager = SettingsManager()
     
@@ -58,15 +47,30 @@ async def main():
     dp["settings"] = settings_manager
     
     dp.include_router(main_router)
-
-    await bot.delete_webhook(drop_pending_updates=True)
     
-    # --- ✅ ИСПРАВЛЕННЫЙ ЗАПУСК ФОНОВЫХ ЗАДАЧ ---
-    await start_active_raid_tasks(bot, db, settings_manager)
-    await start_farm_updater_task(bot, db) # ✅ ЗАПУСКАЕМ ФЕРМУ
+    # --- ✅ ИСПРАВЛЕНИЕ 2: Инициализируем задачи здесь ---
+    farm_updater_task = None 
     
-    logging.info("Запуск polling...")
-    await dp.start_polling(bot)
+    try:
+        # Запускаем фоновые задачи ДО поллинга
+        await start_active_raid_tasks(bot, db, settings_manager)
+        
+        # --- ✅ ЗАПУСК ФОНОВОЙ ЗАДАЧИ ФЕРМЫ ---
+        farm_updater_task = asyncio.create_task(farm_background_updater(bot, db))
+        # --- ---
+        
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot)
+        
+    finally:
+        # Корректно завершаем задачи
+        if farm_updater_task:
+            farm_updater_task.cancel()
+        
+        for task in active_raid_tasks.values():
+            task.cancel()
+        
+        await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
