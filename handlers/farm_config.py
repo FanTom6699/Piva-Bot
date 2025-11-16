@@ -50,7 +50,7 @@ SHOP_PRICES = {
 # (Себестоимость 1 варки: (5*1) + (3*3) = 14 🍺)
 # --- ---
 
-# --- УЛУЧШЕНИЯ: ПОЛЕ (Твой сбалансированный) ---
+# --- ✅ СБАЛАНСИРОВАННЫЕ УЛУЧШЕНИЯ ПОЛЯ ✅ ---
 FIELD_UPGRADES = {
     # Lvl: {cost, time_h, plots, chance_x2, grow_time_min: {зерно, хмель}}
     1: {'cost': 0,     'time_h': 0, 'plots': 2, 'chance_x2': 0,  'grow_time_min': {'зерно': 20, 'хмель': 40}},
@@ -65,7 +65,7 @@ FIELD_UPGRADES = {
     10:{'cost': 15000, 'time_h': 12, 'plots': 6, 'chance_x2': 35, 'grow_time_min': {'зерно': 10, 'хмель': 20}},
 }
 
-# --- УЛУЧШЕНИЯ: ПИВОВАРНЯ (Твой сбалансированный) ---
+# --- ✅ СБАЛАНСИРОВАННЫЕ УЛУЧШЕНИЯ ПИВОВАРНИ ✅ ---
 BREWERY_UPGRADES = {
     # Lvl: {cost, time_h, reward, brew_time_min}
     1:     {'cost': 0,     'time_h': 0, 'reward': 35, 'brew_time_min': 30},
@@ -97,7 +97,6 @@ def get_level_data(level: int, upgrade_data: dict) -> dict:
 
 # --- ✅✅✅ НОВЫЙ КОД: ДОСКА ЗАКАЗОВ ✅✅✅ ---
 # Пул всех заданий, из которых бот будет выбирать 3.
-# ID: {text, item_id, item_amount, reward_type, reward_amount}
 FARM_ORDER_POOL = {
     # (Заказы на Зерно)
     'grain_10': {
@@ -163,6 +162,6 @@ def get_random_orders(count=3) -> list:
     """Возвращает N случайных ID заказов из пула."""
     all_order_keys = list(FARM_ORDER_POOL.keys())
     if len(all_order_keys) < count:
-        return all_order_keys # (На случай, если в пуле < 3)
+        return all_order_keys 
     return random.sample(all_order_keys, count)
 # --- --- ---
