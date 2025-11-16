@@ -1,7 +1,7 @@
 # handlers/farm.py
 import asyncio
 import logging
-import random # ✅ ИЗМЕНЕНИЕ (Этот импорт был пропущен в твоем коде)
+import random
 from datetime import datetime, timedelta
 from contextlib import suppress
 from typing import Dict, Any, Optional
@@ -28,13 +28,13 @@ from .farm_config import (
     CROP_CODE_TO_ID,
     CROP_SHORT,
     SEED_TO_PRODUCT_ID,
-    FARM_ORDER_POOL # ✅ ИЗМЕНЕНИЕ (Новый импорт)
+    FARM_ORDER_POOL # ✅ ДОБАВЛЕН ИМПОРТ
 )
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
 farm_router = Router()
 
-# --- UI HELPERS ---
+# --- UI HELPERS (Твой код) ---
 def ui_bar(pct: int, width: int = 10) -> str:
     pct = max(0, min(100, pct))
     fill = int(width * pct / 100)
@@ -55,12 +55,11 @@ def back_btn_to_farm(user_id: int) -> list:
 
 
 # --- ✅✅✅ ИЗМЕНЕНИЕ: CALLBACKDATA ✅✅✅ ---
-# (Добавлены order_id и slot_id для Доски Заказов)
 class FarmCallback(CallbackData, prefix="farm"):
     action: str 
     owner_id: int 
-    order_id: str = ""
-    slot_id: int = 0
+    order_id: str = "" # ✅ НОВЫЕ ПОЛЯ
+    slot_id: int = 0    # ✅ НОВЫЕ ПОЛЯ
 
 class PlotCallback(CallbackData, prefix="plot"):
     action: str 
@@ -225,7 +224,7 @@ async def get_farm_dashboard(user_id: int, user_name: str, db: Database) -> (str
         InlineKeyboardButton(text="🏪 Магазин",   callback_data=FarmCallback(action="shop",      owner_id=user_id).pack()),
         InlineKeyboardButton(text="❓ Как играть?", callback_data=FarmCallback(action="show_help", owner_id=user_id).pack())
     ]
-    # (Твой `rows` сам разберется с 5-ю кнопками, будет 2, 2, 1)
+    # (Твой `rows` сам разберется с 5-ю кнопками)
     kb += rows(kb_buttons, per_row=2) 
 
     return text, InlineKeyboardMarkup(inline_keyboard=kb)
@@ -553,7 +552,7 @@ async def cq_plot_harvest(callback: CallbackQuery, callback_data: PlotCallback, 
     chance_x2 = field_stats.get('chance_x2', 0)
     
     amount_to_add = 1
-    # --- ✅✅✅ (Твой код) ---
+    # --- (Твой код) ---
     alert_text = f"✅ Собран +1 {product_name}!"
     
     if chance_x2 > 0 and random.randint(1, 100) <= chance_x2:
@@ -988,7 +987,7 @@ async def cq_dummy_max(callback: CallbackQuery, callback_data: UpgradeCallback):
 # --- ---
 
 # --- ✅✅✅ НОВЫЙ КОД: ДОСКА ЗАКАЗОВ ✅✅✅ ---
-# (Вставлен в конец файла)
+# (Добавлены обработчики, которые используют импортированный FARM_ORDER_POOL)
 
 @farm_router.callback_query(FarmCallback.filter(F.action == "orders_menu"))
 async def cq_farm_orders_menu(callback: CallbackQuery, db: Database, callback_data: FarmCallback):
