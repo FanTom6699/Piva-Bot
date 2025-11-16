@@ -58,8 +58,8 @@ def back_btn_to_farm(user_id: int) -> list:
 class FarmCallback(CallbackData, prefix="farm"):
     action: str 
     owner_id: int 
-    order_id: str = "" # ✅ НОВЫЕ ПОЛЯ
-    slot_id: int = 0    # ✅ НОВЫЕ ПОЛЯ
+    order_id: str = ""
+    slot_id: int = 0
 
 class PlotCallback(CallbackData, prefix="plot"):
     action: str 
@@ -182,7 +182,7 @@ async def get_farm_dashboard(user_id: int, user_name: str, db: Database) -> (str
     text += f"<code>--- --- --- ---</code>\n"
     text += f"{advice}\n"
 
-    # --- ✅✅✅ ИЗМЕНЕНИЕ: Шаг 6: Собираем Кнопки ✅✅✅ ---
+    # --- Шаг 6: Собираем Кнопки (Твой код) ---
     kb = []
     
     # Кнопка Поля (Твой код)
@@ -284,7 +284,7 @@ async def get_plots_dashboard(user_id: int, db: Database) -> (str, InlineKeyboar
     return text, InlineKeyboardMarkup(inline_keyboard=kb)
 # --- ---
 
-# --- HANDLERS (Твой код) ---
+# --- HANDLERS ---
 
 async def check_owner(callback: CallbackQuery, owner_id: int) -> bool:
     if callback.from_user.id != owner_id:
@@ -300,13 +300,22 @@ async def cmd_farm(message: Message, bot: Bot, db: Database):
     text, keyboard = await get_farm_dashboard(user_id, message.from_user.full_name, db)
     await message.answer(text, reply_markup=keyboard)
 
+
+# --- ✅✅✅ ИСПРАВЛЕННЫЙ ХЭНДЛЕР (ГАРАНТИЯ ОТВЕТА) ✅✅✅ ---
 @farm_router.callback_query(FarmCallback.filter(F.action == "main_dashboard"))
 async def cq_farm_main_dashboard(callback: CallbackQuery, callback_data: FarmCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
-    text, keyboard = await get_farm_dashboard(callback.from_user.id, callback.from_user.full_name, db)
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=keyboard)
+    try:
+        text, keyboard = await get_farm_dashboard(callback.from_user.id, callback.from_user.full_name, db)
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as e:
+        logging.error(f"Critical error in cq_farm_main_dashboard: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при загрузке Фермы! Попробуйте /farm снова.", show_alert=True)
+        return
     await callback.answer()
+# --- ---
+
 
 @farm_router.callback_query(FarmCallback.filter(F.action == "show_brew_time"))
 async def cq_farm_show_brew_time(callback: CallbackQuery, callback_data: FarmCallback, db: Database):
@@ -357,33 +366,43 @@ async def cq_farm_show_upgrade_time(callback: CallbackQuery, callback_data: Farm
 
     await callback.answer(alert_text, show_alert=True)
 
+
+# --- ✅✅✅ ИСПРАВЛЕННЫЙ ХЭНДЛЕР (ГАРАНТИЯ ОТВЕТА) ✅✅✅ ---
 @farm_router.callback_query(FarmCallback.filter(F.action == "view_plots"))
 async def cq_farm_view_plots(callback: CallbackQuery, callback_data: FarmCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
-    
-    user_id = callback.from_user.id
-    text, keyboard = await get_plots_dashboard(user_id, db)
-    
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=keyboard)
+    try:
+        user_id = callback.from_user.id
+        text, keyboard = await get_plots_dashboard(user_id, db)
+        
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as e:
+        logging.error(f"Critical error in cq_farm_view_plots: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при открытии Поля!", show_alert=True)
+        return
     await callback.answer()
+# --- ---
 
-# (Твой код Магазина - НЕ ТРОГАЮ)
 @farm_router.callback_query(FarmCallback.filter(F.action == "shop"))
 async def cq_farm_go_to_shop(callback: CallbackQuery, callback_data: FarmCallback, db: Database):
     from .shop import get_shop_menu 
 
     if not await check_owner(callback, callback_data.owner_id): 
         return
-
-    text, keyboard = await get_shop_menu(
-        user_id=callback.from_user.id, 
-        db=db, 
-        owner_id=callback_data.owner_id
-    )
-    
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=keyboard)
+    try:
+        text, keyboard = await get_shop_menu(
+            user_id=callback.from_user.id, 
+            db=db, 
+            owner_id=callback_data.owner_id
+        )
+        
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as e:
+        logging.error(f"Critical error in cq_farm_go_to_shop: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при открытии Магазина!", show_alert=True)
+        return
     
     await callback.answer()
 
@@ -391,23 +410,27 @@ async def cq_farm_go_to_shop(callback: CallbackQuery, callback_data: FarmCallbac
 async def cq_farm_inventory(callback: CallbackQuery, callback_data: FarmCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): 
         return
+    try:
+        user_id = callback.from_user.id
+        inv = await db.get_user_inventory(user_id)
 
-    user_id = callback.from_user.id
-    inv = await db.get_user_inventory(user_id)
+        text = (
+            f"<b>📦 Мой Склад</b>\n\n"
+            f"<b>Урожай:</b>\n"
+            f"• {FARM_ITEM_NAMES['зерно']}: <b>{inv['зерно']}</b>\n"
+            f"• {FARM_ITEM_NAMES['хмель']}: <b>{inv['хмель']}</b>\n\n"
+            f"<b>Семена:</b>\n"
+            f"• {FARM_ITEM_NAMES['семя_зерна']}: <b>{inv['семя_зерна']}</b>\n"
+            f"• {FARM_ITEM_NAMES['семя_хмеля']}: <b>{inv['семя_хмеля']}</b>\n"
+        )
 
-    text = (
-        f"<b>📦 Мой Склад</b>\n\n"
-        f"<b>Урожай:</b>\n"
-        f"• {FARM_ITEM_NAMES['зерно']}: <b>{inv['зерно']}</b>\n"
-        f"• {FARM_ITEM_NAMES['хмель']}: <b>{inv['хмель']}</b>\n\n"
-        f"<b>Семена:</b>\n"
-        f"• {FARM_ITEM_NAMES['семя_зерна']}: <b>{inv['семя_зерна']}</b>\n"
-        f"• {FARM_ITEM_NAMES['семя_хмеля']}: <b>{inv['семя_хмеля']}</b>\n"
-    )
-
-    kb = [back_btn_to_farm(user_id)]
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        kb = [back_btn_to_farm(user_id)]
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    except Exception as e:
+        logging.error(f"Critical error in cq_farm_inventory: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при открытии Склада!", show_alert=True)
+        return
     await callback.answer()
 
 
@@ -415,184 +438,201 @@ async def cq_farm_inventory(callback: CallbackQuery, callback_data: FarmCallback
 async def cq_plot_plant_menu(callback: CallbackQuery, callback_data: PlotCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
     
-    user_id = callback.from_user.id
-    plot_num = callback_data.plot_num
-    inventory = await db.get_user_inventory(user_id)
-    
-    text = (
-        f"<b>🌱 Посадка — Грядка {plot_num}</b>\n\n"
-        f"<i>На складе:</i>\n"
-        f"• {FARM_ITEM_NAMES['семя_зерна']}: {inventory['семя_зерна']}\n"
-        f"• {FARM_ITEM_NAMES['семя_хмеля']}: {inventory['семя_хмеля']}"
-    )
-    
-    buttons = []
-    
-    farm_data = await db.get_user_farm_data(user_id)
-    field_lvl = farm_data.get('field_level', 1)
-    field_stats = get_level_data(field_lvl, FIELD_UPGRADES)
-    
-    if inventory['семя_зерна'] > 0:
-        time_m = field_stats.get('grow_time_min', {}).get('зерно', '??')
-        buttons.append(InlineKeyboardButton(
-            text=f"Посадить 🌾 Зерно ({time_m} мин)", 
-            callback_data=PlotCallback(action="plant_do", owner_id=user_id, plot_num=plot_num, crop_id="g").pack()
-        ))
-    
-    if inventory['семя_хмеля'] > 0:
-        time_m = field_stats.get('grow_time_min', {}).get('хмель', '??')
-        buttons.append(InlineKeyboardButton(
-            text=f"Посадить 🌱 Хмель ({time_m} мин)", 
-            callback_data=PlotCallback(action="plant_do", owner_id=user_id, plot_num=plot_num, crop_id="h").pack()
-        ))
-    
-    if inventory['семя_зерна'] == 0 and inventory['семя_хмеля'] == 0:
-        text += "\n\n⛔ <b>У тебя нет семян!</b>\nСначала купи их в Магазине."
-        buttons.append(InlineKeyboardButton(
-            text="[🏪 Зайти в Магазин]", 
-            callback_data=FarmCallback(action="shop", owner_id=user_id).pack()
-        ))
+    try:
+        user_id = callback.from_user.id
+        plot_num = callback_data.plot_num
+        inventory = await db.get_user_inventory(user_id)
+        
+        text = (
+            f"<b>🌱 Посадка — Грядка {plot_num}</b>\n\n"
+            f"<i>На складе:</i>\n"
+            f"• {FARM_ITEM_NAMES['семя_зерна']}: {inventory['семя_зерна']}\n"
+            f"• {FARM_ITEM_NAMES['семя_хмеля']}: {inventory['семя_хмеля']}"
+        )
+        
+        buttons = []
+        
+        farm_data = await db.get_user_farm_data(user_id)
+        field_lvl = farm_data.get('field_level', 1)
+        field_stats = get_level_data(field_lvl, FIELD_UPGRADES)
+        
+        if inventory['семя_зерна'] > 0:
+            time_m = field_stats.get('grow_time_min', {}).get('зерно', '??')
+            buttons.append(InlineKeyboardButton(
+                text=f"Посадить 🌾 Зерно ({time_m} мин)", 
+                callback_data=PlotCallback(action="plant_do", owner_id=user_id, plot_num=plot_num, crop_id="g").pack()
+            ))
+        
+        if inventory['семя_хмеля'] > 0:
+            time_m = field_stats.get('grow_time_min', {}).get('хмель', '??')
+            buttons.append(InlineKeyboardButton(
+                text=f"Посадить 🌱 Хмель ({time_m} мин)", 
+                callback_data=PlotCallback(action="plant_do", owner_id=user_id, plot_num=plot_num, crop_id="h").pack()
+            ))
+        
+        if inventory['семя_зерна'] == 0 and inventory['семя_хмеля'] == 0:
+            text += "\n\n⛔ <b>У тебя нет семян!</b>\nСначала купи их в Магазине."
+            buttons.append(InlineKeyboardButton(
+                text="[🏪 Зайти в Магазин]", 
+                callback_data=FarmCallback(action="shop", owner_id=user_id).pack()
+            ))
 
-    keyboard_rows = rows(buttons, per_row=1)
-    
-    keyboard_rows.append([
-        InlineKeyboardButton(text="⬅️ Назад в Поле", callback_data=FarmCallback(action="view_plots", owner_id=user_id).pack())
-    ])
-    
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows))
+        keyboard_rows = rows(buttons, per_row=1)
+        
+        keyboard_rows.append([
+            InlineKeyboardButton(text="⬅️ Назад в Поле", callback_data=FarmCallback(action="view_plots", owner_id=user_id).pack())
+        ])
+        
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows))
+    except Exception as e:
+        logging.error(f"Critical error in cq_plot_plant_menu: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при загрузке меню Посадки!", show_alert=True)
+        return
     await callback.answer()
 
 @farm_router.callback_query(PlotCallback.filter(F.action == "plant_do"))
 async def cq_plot_plant_do(callback: CallbackQuery, callback_data: PlotCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
-
-    user_id = callback.from_user.id
-    plot_num = callback_data.plot_num
     
-    code = callback_data.crop_id
-    crop_id = CROP_CODE_TO_ID.get(code) 
-
-    if not crop_id:
-        await callback.answer("⛔ Ошибка! Неизвестный код семян.", show_alert=True)
-        return
-
-    # --- Шаг 1: Списание семян ---
-    logging.info(f"[Farm DEBUG] Участок {plot_num}: Пытаемся списать 1x {crop_id} у {user_id}")
-    success = await db.modify_inventory(user_id, crop_id, -1)
-    
-    if not success:
-        logging.warning(f"[Farm DEBUG] Участок {plot_num}: НЕУДАЧА списания (нет семян).")
-        await callback.answer(f"⛔ Ошибка! У тебя закончились '{FARM_ITEM_NAMES[crop_id]}'.", show_alert=True)
-        await cq_plot_plant_menu(callback, PlotCallback(action="plant_menu", owner_id=user_id, plot_num=plot_num), db)
-        return
-    
-    logging.info(f"[Farm DEBUG] Участок {plot_num}: Списание семян УСПЕШНО.")
-
-    farm_data = await db.get_user_farm_data(user_id)
-    field_lvl = farm_data.get('field_level', 1)
-    field_stats = get_level_data(field_lvl, FIELD_UPGRADES)
-    
-    product_id = SEED_TO_PRODUCT_ID.get(crop_id)
-    
-    if not product_id or product_id not in field_stats.get('grow_time_min', {}):
-        logging.error(f"[Farm DEBUG] Участок {plot_num}: ОШИБКА! Не найден product_id для {crop_id}.")
-        await db.modify_inventory(user_id, crop_id, 1) 
-        await callback.answer(f"⛔ Внутренняя ошибка! Не найдено время для {crop_id}.", show_alert=True)
-        return
-
-    time_m = int(field_stats['grow_time_min'][product_id]) 
-    ready_time = datetime.now() + timedelta(minutes=time_m)
-    
-    # --- Шаг 2: Посадка в БД ---
-    planted = False
-    try:
-        logging.info(f"[Farm DEBUG] Участок {plot_num}: Пытаемся вызвать db.plant_crop()...")
-        planted = await db.plant_crop(user_id, plot_num, crop_id, ready_time)
-        logging.info(f"[Farm DEBUG] Участок {plot_num}: db.plant_crop() ВЫПОЛНЕНО. Результат: {planted}")
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
+        plot_num = callback_data.plot_num
         
-    except Exception as e:
-        logging.error(f"[Farm DEBUG] Участок {plot_num}: НЕИЗВЕСТНАЯ ОШИБКА при db.plant_crop(): {e}")
-        await callback.answer(f"⛔ Неизвестная ошибка: {e}", show_alert=True)
-        await db.modify_inventory(user_id, crop_id, 1) # (Возвращаем семя)
-        return
+        code = callback_data.crop_id
+        crop_id = CROP_CODE_TO_ID.get(code) 
 
-    if not planted:
-        logging.error(f"[Farm DEBUG] Участок {plot_num} (user {user_id}) уже был занят (UNIQUE constraint).")
-        await db.modify_inventory(user_id, crop_id, 1) 
-        await callback.answer("⛔ Ошибка! Эта грядка уже занята.", show_alert=True)
-        return
+        if not crop_id:
+            await callback.answer("⛔ Ошибка! Неизвестный код семян.", show_alert=True)
+            return
 
-    await callback.answer(f"✅ Грядка {plot_num} засажена! (Готово через {time_m} мин)")
-    
-    await cq_farm_view_plots(callback, FarmCallback(action="view_plots", owner_id=user_id), db)
+        # --- Шаг 1: Списание семян ---
+        logging.info(f"[Farm DEBUG] Участок {plot_num}: Пытаемся списать 1x {crop_id} у {user_id}")
+        success = await db.modify_inventory(user_id, crop_id, -1)
+        
+        if not success:
+            logging.warning(f"[Farm DEBUG] Участок {plot_num}: НЕУДАЧА списания (нет семян).")
+            await callback.answer(f"⛔ Ошибка! У тебя закончились '{FARM_ITEM_NAMES[crop_id]}'.", show_alert=True)
+            await cq_plot_plant_menu(callback, PlotCallback(action="plant_menu", owner_id=user_id, plot_num=plot_num), db)
+            return
+        
+        logging.info(f"[Farm DEBUG] Участок {plot_num}: Списание семян УСПЕШНО.")
+
+        farm_data = await db.get_user_farm_data(user_id)
+        field_lvl = farm_data.get('field_level', 1)
+        field_stats = get_level_data(field_lvl, FIELD_UPGRADES)
+        
+        product_id = SEED_TO_PRODUCT_ID.get(crop_id)
+        
+        if not product_id or product_id not in field_stats.get('grow_time_min', {}):
+            logging.error(f"[Farm DEBUG] Участок {plot_num}: ОШИБКА! Не найден product_id для {crop_id}.")
+            await db.modify_inventory(user_id, crop_id, 1) 
+            await callback.answer(f"⛔ Внутренняя ошибка! Не найдено время для {crop_id}.", show_alert=True)
+            return
+
+        time_m = int(field_stats['grow_time_min'][product_id]) 
+        ready_time = datetime.now() + timedelta(minutes=time_m)
+        
+        # --- Шаг 2: Посадка в БД ---
+        planted = False
+        try:
+            logging.info(f"[Farm DEBUG] Участок {plot_num}: Пытаемся вызвать db.plant_crop()...")
+            planted = await db.plant_crop(user_id, plot_num, crop_id, ready_time)
+            logging.info(f"[Farm DEBUG] Участок {plot_num}: db.plant_crop() ВЫПОЛНЕНО. Результат: {planted}")
+            
+        except Exception as e:
+            logging.error(f"[Farm DEBUG] Участок {plot_num}: НЕИЗВЕСТНАЯ ОШИБКА при db.plant_crop(): {e}")
+            await callback.answer(f"⛔ Неизвестная ошибка: {e}", show_alert=True)
+            await db.modify_inventory(user_id, crop_id, 1) # (Возвращаем семя)
+            return
+
+        if not planted:
+            logging.error(f"[Farm DEBUG] Участок {plot_num} (user {user_id}) уже был занят (UNIQUE constraint).")
+            await db.modify_inventory(user_id, crop_id, 1) 
+            await callback.answer("⛔ Ошибка! Эта грядка уже занята.", show_alert=True)
+            return
+
+        await callback.answer(f"✅ Грядка {plot_num} засажена! (Готово через {time_m} мин)")
+        
+        await cq_farm_view_plots(callback, FarmCallback(action="view_plots", owner_id=user_id), db)
+        
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_plot_plant_do: {e}", exc_info=True)
+        await callback.answer("⛔ Критическая ошибка при посадке!", show_alert=True)
+        return
 
 @farm_router.callback_query(PlotCallback.filter(F.action == "harvest"))
 async def cq_plot_harvest(callback: CallbackQuery, callback_data: PlotCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
     
-    user_id = callback.from_user.id
-    plot_num = callback_data.plot_num
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
+        plot_num = callback_data.plot_num
 
-    crop_id_seed = await db.harvest_plot(user_id, plot_num)
-    
-    if not crop_id_seed:
-        await callback.answer("⛔ Ошибка! Этот участок уже пуст.", show_alert=True)
-        return
+        crop_id_seed = await db.harvest_plot(user_id, plot_num)
         
-    crop_id_product = SEED_TO_PRODUCT_ID.get(crop_id_seed)
-    if not crop_id_product:
-         await callback.answer(f"⛔ Ошибка! Неизвестный ID семени: {crop_id_seed}", show_alert=True)
-         return
-         
-    product_name = FARM_ITEM_NAMES[crop_id_product]
-    
-    farm_data = await db.get_user_farm_data(user_id)
-    field_stats = get_level_data(farm_data.get('field_level', 1), FIELD_UPGRADES)
-    chance_x2 = field_stats.get('chance_x2', 0)
-    
-    amount_to_add = 1
-    # --- (Твой код) ---
-    alert_text = f"✅ Собран +1 {product_name}!"
-    
-    if chance_x2 > 0 and random.randint(1, 100) <= chance_x2:
-        amount_to_add = 2
-        alert_text = f"🎉 УДАЧА (x2)! 🎉\nСобран +2 {product_name}!" # (Убрали <b>)
-    # --- ---
+        if not crop_id_seed:
+            await callback.answer("⛔ Ошибка! Этот участок уже пуст.", show_alert=True)
+            return
+            
+        crop_id_product = SEED_TO_PRODUCT_ID.get(crop_id_seed)
+        if not crop_id_product:
+            await callback.answer(f"⛔ Ошибка! Неизвестный ID семени: {crop_id_seed}", show_alert=True)
+            return
+            
+        product_name = FARM_ITEM_NAMES[crop_id_product]
+        
+        farm_data = await db.get_user_farm_data(user_id)
+        field_stats = get_level_data(farm_data.get('field_level', 1), FIELD_UPGRADES)
+        chance_x2 = field_stats.get('chance_x2', 0)
+        
+        amount_to_add = 1
+        alert_text = f"✅ Собран +1 {product_name}!"
+        
+        if chance_x2 > 0 and random.randint(1, 100) <= chance_x2:
+            amount_to_add = 2
+            alert_text = f"🎉 УДАЧА (x2)! 🎉\nСобран +2 {product_name}!"
 
-    await db.modify_inventory(user_id, crop_id_product, amount_to_add)
+        await db.modify_inventory(user_id, crop_id_product, amount_to_add)
 
-    await callback.answer(alert_text, show_alert=True)
-    
-    await cq_farm_view_plots(callback, FarmCallback(action="view_plots", owner_id=user_id), db)
+        await callback.answer(alert_text, show_alert=True)
+        
+        await cq_farm_view_plots(callback, FarmCallback(action="view_plots", owner_id=user_id), db)
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_plot_harvest: {e}", exc_info=True)
+        await callback.answer("⛔ Критическая ошибка при сборе урожая!", show_alert=True)
+        return
 
 @farm_router.callback_query(PlotCallback.filter(F.action == "show_time"))
 async def cq_plot_show_time(callback: CallbackQuery, callback_data: PlotCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id):
         return
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback_data.owner_id
+        plot_num = callback_data.plot_num
 
-    user_id = callback_data.owner_id
-    plot_num = callback_data.plot_num
+        active_plots_data = await db.get_user_plots(user_id)
+        plot_info = None
+        for plot in active_plots_data:
+            if plot[0] == plot_num: 
+                plot_info = plot
+                break
 
-    active_plots_data = await db.get_user_plots(user_id)
-    plot_info = None
-    for plot in active_plots_data:
-        if plot[0] == plot_num: 
-            plot_info = plot
-            break
+        if not plot_info or not isinstance(plot_info[2], str):
+            await callback.answer("Ошибка! Грядка уже пуста (или не найдена).", show_alert=True)
+            return
 
-    if not plot_info or not isinstance(plot_info[2], str):
-        await callback.answer("Ошибка! Грядка уже пуста (или не найдена).", show_alert=True)
-        return
+        ready_time = datetime.fromisoformat(plot_info[2])
+        now = datetime.now()
 
-    ready_time = datetime.fromisoformat(plot_info[2])
-    now = datetime.now()
-
-    if now >= ready_time:
-        await callback.answer("✅ Готово! Нажмите 'Собрать'.", show_alert=True)
-    else:
-        time_left = format_time_delta(ready_time - now)
-        await callback.answer(f"⏳ Еще созревает. Осталось: {time_left}", show_alert=True)
+        if now >= ready_time:
+            await callback.answer("✅ Готово! Нажмите 'Собрать'.", show_alert=True)
+        else:
+            time_left = format_time_delta(ready_time - now)
+            await callback.answer(f"⏳ Еще созревает. Осталось: {time_left}", show_alert=True)
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_plot_show_time: {e}", exc_info=True)
+        await callback.answer("⛔ Внутренняя ошибка при проверке времени!", show_alert=True)
 # --- ---
 
 
@@ -602,107 +642,118 @@ async def cq_plot_show_time(callback: CallbackQuery, callback_data: PlotCallback
 async def cq_brewery_menu(callback: CallbackQuery, callback_data: BreweryCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): 
         return
+    try: # ✅ ДОБАВЛЕН TRY
+        uid = callback.from_user.id
+        farm = await db.get_user_farm_data(uid)
+        inv  = await db.get_user_inventory(uid)
 
-    uid = callback.from_user.id
-    farm = await db.get_user_farm_data(uid)
-    inv  = await db.get_user_inventory(uid)
+        lvl  = farm.get('brewery_level', 1)
+        st   = get_level_data(lvl, BREWERY_UPGRADES)
 
-    lvl  = farm.get('brewery_level', 1)
-    st   = get_level_data(lvl, BREWERY_UPGRADES)
+        need_g = BREWERY_RECIPE['зерно']
+        need_h = BREWERY_RECIPE['хмель']
 
-    need_g = BREWERY_RECIPE['зерно']
-    need_h = BREWERY_RECIPE['хмель']
+        max_by_g = inv['зерно'] // need_g if need_g > 0 else 999
+        max_by_h = inv['хмель'] // need_h if need_h > 0 else 999
+        max_brew = min(max_by_g, max_by_h)
 
-    max_by_g = inv['зерно'] // need_g if need_g > 0 else 999
-    max_by_h = inv['хмель'] // need_h if need_h > 0 else 999
-    max_brew = min(max_by_g, max_by_h)
+        text = (
+            f"<b>🏭 Пивоварня (Ур. {lvl})</b>\n"
+            f"Рецепт: {need_g} × {FARM_ITEM_NAMES['зерно']} + {need_h} × {FARM_ITEM_NAMES['хмель']}\n"
+            f"Награда: +{st.get('reward', '??')} 🍺 | Время: {st.get('brew_time_min', '??')} мин\n\n" 
+            f"<b>На складе:</b>  {FARM_ITEM_NAMES['зерно']}: <b>{inv['зерно']}</b> / {need_g} • "
+            f"{FARM_ITEM_NAMES['хмель']}: <b>{inv['хмель']}</b> / {need_h}\n"
+        )
 
-    text = (
-        f"<b>🏭 Пивоварня (Ур. {lvl})</b>\n"
-        f"Рецепт: {need_g} × {FARM_ITEM_NAMES['зерно']} + {need_h} × {FARM_ITEM_NAMES['хмель']}\n"
-        f"Награда: +{st.get('reward', '??')} 🍺 | Время: {st.get('brew_time_min', '??')} мин\n\n" 
-        f"<b>На складе:</b>  {FARM_ITEM_NAMES['зерно']}: <b>{inv['зерно']}</b> / {need_g} • "
-        f"{FARM_ITEM_NAMES['хмель']}: <b>{inv['хмель']}</b> / {need_h}\n"
-    )
-
-    buttons = []
-    if max_brew > 0:
-        text += f"\nМожешь сварить: <b>{max_brew}</b> порций."
-        btns = []
-        for qty in (1, 5, 10):
-            if max_brew >= qty:
-                total = timedelta(minutes=int(st.get('brew_time_min', 30)) * qty)
+        buttons = []
+        if max_brew > 0:
+            text += f"\nМожешь сварить: <b>{max_brew}</b> порций."
+            btns = []
+            for qty in (1, 5, 10):
+                if max_brew >= qty:
+                    total = timedelta(minutes=int(st.get('brew_time_min', 30)) * qty)
+                    btns.append(InlineKeyboardButton(
+                        text=f"🔥 {qty} ({format_time_delta(total)})", 
+                        callback_data=BreweryCallback(action="brew_do", owner_id=uid, quantity=qty).pack()
+                    ))
+            if max_brew not in (1, 5, 10) and max_brew > 0:
+                total = timedelta(minutes=int(st.get('brew_time_min', 30)) * max_brew)
                 btns.append(InlineKeyboardButton(
-                    text=f"🔥 {qty} ({format_time_delta(total)})", 
-                    callback_data=BreweryCallback(action="brew_do", owner_id=uid, quantity=qty).pack()
+                    text=f"🔥 MAX {max_brew} ({format_time_delta(total)})", 
+                    callback_data=BreweryCallback(action="brew_do", owner_id=uid, quantity=max_brew).pack()
                 ))
-        if max_brew not in (1, 5, 10) and max_brew > 0:
-            total = timedelta(minutes=int(st.get('brew_time_min', 30)) * max_brew)
-            btns.append(InlineKeyboardButton(
-                text=f"🔥 MAX {max_brew} ({format_time_delta(total)})", 
-                callback_data=BreweryCallback(action="brew_do", owner_id=uid, quantity=max_brew).pack()
-            ))
-        buttons += rows(btns, per_row=3)
-    else:
-        text += "\n⛔ <b>Недостаточно ресурсов для варки.</b>"
+            buttons += rows(btns, per_row=3)
+        else:
+            text += "\n⛔ <b>Недостаточно ресурсов для варки.</b>"
 
-    buttons.append(back_btn_to_farm(uid))
+        buttons.append(back_btn_to_farm(uid))
 
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_brewery_menu: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при открытии Пивоварни!", show_alert=True)
+        return
     await callback.answer()
 
 @farm_router.callback_query(BreweryCallback.filter(F.action == "brew_do"))
 async def cq_brewery_do(callback: CallbackQuery, callback_data: BreweryCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
     
-    user_id = callback.from_user.id
-    quantity = callback_data.quantity
-    
-    if quantity <= 0:
-        await callback.answer("⛔ Ошибка! Неверное количество.", show_alert=True)
-        return
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
+        quantity = callback_data.quantity
+        
+        if quantity <= 0:
+            await callback.answer("⛔ Ошибка! Неверное количество.", show_alert=True)
+            return
 
-    inventory = await db.get_user_inventory(user_id)
-    cost_grain = BREWERY_RECIPE['зерно'] * quantity
-    cost_hops = BREWERY_RECIPE['хмель'] * quantity
-    
-    if inventory['зерно'] < cost_grain or inventory['хмель'] < cost_hops:
-        await callback.answer("⛔ Ошибка! У тебя закончились ресурсы, пока ты думал.", show_alert=True)
-        await cq_brewery_menu(callback, BreweryCallback(action="brew_menu", owner_id=user_id), db)
-        return
+        inventory = await db.get_user_inventory(user_id)
+        cost_grain = BREWERY_RECIPE['зерно'] * quantity
+        cost_hops = BREWERY_RECIPE['хмель'] * quantity
+        
+        if inventory['зерно'] < cost_grain or inventory['хмель'] < cost_hops:
+            await callback.answer("⛔ Ошибка! У тебя закончились ресурсы, пока ты думал.", show_alert=True)
+            await cq_brewery_menu(callback, BreweryCallback(action="brew_menu", owner_id=user_id), db)
+            return
 
-    success_grain = await db.modify_inventory(user_id, 'зерно', -cost_grain)
-    success_hops = await db.modify_inventory(user_id, 'хмель', -cost_hops)
-    
-    if not success_grain or not success_hops:
-        if success_grain: await db.modify_inventory(user_id, 'зерно', cost_grain)
-        if success_hops: await db.modify_inventory(user_id, 'хмель', cost_hops)
-        await callback.answer("⛔ Ошибка! Не хватило ресурсов (повторная проверка).", show_alert=True)
-        await cq_brewery_menu(callback, BreweryCallback(action="brew_menu", owner_id=user_id), db)
-        return
-    
-    farm_data = await db.get_user_farm_data(user_id)
-    brewery_lvl = farm_data.get('brewery_level', 1)
-    brewery_stats = get_level_data(brewery_lvl, BREWERY_UPGRADES)
-    
-    brew_time_min = int(brewery_stats.get('brew_time_min', 30))
-    
-    total_time_minutes = brew_time_min * quantity
-    end_time = datetime.now() + timedelta(minutes=total_time_minutes)
-    
-    await db.start_brewing(user_id, quantity, end_time)
+        success_grain = await db.modify_inventory(user_id, 'зерно', -cost_grain)
+        success_hops = await db.modify_inventory(user_id, 'хмель', -cost_hops)
+        
+        if not success_grain or not success_hops:
+            if success_grain: await db.modify_inventory(user_id, 'зерно', cost_grain)
+            if success_hops: await db.modify_inventory(user_id, 'хмель', cost_hops)
+            await callback.answer("⛔ Ошибка! Не хватило ресурсов (повторная проверка).", show_alert=True)
+            await cq_brewery_menu(callback, BreweryCallback(action="brew_menu", owner_id=user_id), db)
+            return
+        
+        farm_data = await db.get_user_farm_data(user_id)
+        brewery_lvl = farm_data.get('brewery_level', 1)
+        brewery_stats = get_level_data(brewery_lvl, BREWERY_UPGRADES)
+        
+        brew_time_min = int(brewery_stats.get('brew_time_min', 30))
+        
+        total_time_minutes = brew_time_min * quantity
+        end_time = datetime.now() + timedelta(minutes=total_time_minutes)
+        
+        await db.start_brewing(user_id, quantity, end_time)
 
-    await callback.answer(f"✅ Варка {quantity}x порций началась! (Готово через {format_time_delta(timedelta(minutes=total_time_minutes))})")
-    await cq_farm_main_dashboard(callback, FarmCallback(action="main_dashboard", owner_id=user_id), db)
+        await callback.answer(f"✅ Варка {quantity}x порций началась! (Готово через {format_time_delta(timedelta(minutes=total_time_minutes))})")
+        await cq_farm_main_dashboard(callback, FarmCallback(action="main_dashboard", owner_id=user_id), db)
+        
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_brewery_do: {e}", exc_info=True)
+        await callback.answer("⛔ Критическая ошибка при начале варки!", show_alert=True)
+        # (Не вызываем cq_farm_main_dashboard, чтобы избежать рекурсии ошибки)
+        return
 
 @farm_router.callback_query(BreweryCallback.filter(F.action == "collect"))
 async def cq_brewery_collect(callback: CallbackQuery, callback_data: BreweryCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
     
-    user_id = callback.from_user.id
-    
-    try:
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
+        
         farm_data = await db.get_user_farm_data(user_id)
         brewery_lvl = farm_data.get('brewery_level', 1)
         brewery_stats = get_level_data(brewery_lvl, BREWERY_UPGRADES)
@@ -728,15 +779,13 @@ async def cq_brewery_collect(callback: CallbackQuery, callback_data: BreweryCall
         
         await db.collect_brewery(user_id, total_reward)
 
-        # --- (Твой код) ---
         await callback.answer(f"УСПЕХ!\nТы получил +{total_reward} 🍺 Рейтинга!", show_alert=True)
-        # --- ---
         
         await cq_farm_main_dashboard(callback, FarmCallback(action="main_dashboard", owner_id=user_id), db)
     
-    except Exception as e:
-        logging.error(f"[Farm DEBUG] КРИТИЧЕСКАЯ ОШИБКА в cq_brewery_collect: {e}")
-        await callback.answer(f"⛔ Ошибка сбора! База данных занята (locked) или {e}", show_alert=True)
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"[Farm DEBUG] КРИТИЧЕСКАЯ ОШИБКА в cq_brewery_collect: {e}", exc_info=True)
+        await callback.answer(f"⛔ Ошибка сбора! {e}", show_alert=True)
         await cq_farm_main_dashboard(callback, FarmCallback(action="main_dashboard", owner_id=user_id), db)
 # --- ---
 
@@ -746,106 +795,111 @@ async def cq_brewery_collect(callback: CallbackQuery, callback_data: BreweryCall
 async def cq_farm_upgrades(callback: CallbackQuery, callback_data: FarmCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
     
-    user_id = callback.from_user.id
-    
-    balance = await db.get_user_beer_rating(user_id)
-    farm_data = await db.get_user_farm_data(user_id)
-    now = datetime.now()
-
-    field_lvl = farm_data.get('field_level', 1)
-    brewery_lvl = farm_data.get('brewery_level', 1)
-    
-    field_stats = get_level_data(field_lvl, FIELD_UPGRADES)
-    brewery_stats = get_level_data(brewery_lvl, BREWERY_UPGRADES)
-    
-    text = (
-        f"<b>⭐ Улучшения</b>\n"
-        f"<i>Твой Рейтинг: {balance} 🍺</i>\n\n"
-    )
-    
-    buttons = []
-    
-    # --- БЛОК: ПОЛЕ (Твой код) ---
-    text += f"<b>🌱 Поле — Уровень {field_lvl}</b>\n"
-    field_upgrade_timer = farm_data.get('field_upgrade_timer_end')
-
-    if field_upgrade_timer and now < field_upgrade_timer:
-        time_left = format_time_delta(field_upgrade_timer - now)
-        text += f"<i>(Строится... ⏳ {time_left})</i>\n"
-        buttons.append([InlineKeyboardButton(text=f"Поле (Строится... ⏳ {time_left})", callback_data=UpgradeCallback(action="dummy_build", owner_id=user_id).pack())])
-    
-    else:
-        text += "📌 Текущие бонусы:\n"
-        text += f"• Грядок: {field_stats.get('plots', '??')}\n"
-        text += f"• Шанс x2: {field_stats.get('chance_x2', '??')}%\n"
-        text += f"• Рост: 🌾 {field_stats.get('grow_time_min', {}).get('зерно', '??')}м / 🌱 {field_stats.get('grow_time_min', {}).get('хмель', '??')}м\n"
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
         
-        if field_stats.get('max_level', False):
-            text += "\n<b>⭐ Поле — максимальный уровень!</b>\n"
-            buttons.append([InlineKeyboardButton(text="✅ Поле (Макс. Уровень)", callback_data=UpgradeCallback(action="dummy_max", owner_id=user_id).pack())])
-        else:
-            next_field_stats = FIELD_UPGRADES.get(field_lvl + 1, {})
-            cost = next_field_stats.get('cost')
-            time_h = next_field_stats.get('time_h')
-            
-            text += f"\n➡ Следующий уровень ({field_lvl + 1}):\n"
-            text += f"• Грядок: {field_stats.get('plots', '??')} → {next_field_stats.get('plots', '??')}\n"
-            text += f"• Шанс x2: {field_stats.get('chance_x2', '??')}% → {next_field_stats.get('chance_x2', '??')}%\n"
-            text += f"• Рост (🌾): {field_stats.get('grow_time_min', {}).get('зерно', '??')}м → {next_field_stats.get('grow_time_min', {}).get('зерно', '??')}м\n"
-            
-            text += f"💰 Стоимость: {cost} 🍺\n"
-            text += f"⏳ Время улучшения: {time_h} ч\n"
-            
-            if balance < cost:
-                buttons.append([InlineKeyboardButton(text=f"⛔ Недостаточно 🍺 ({cost})", callback_data=UpgradeCallback(action="dummy_money", owner_id=user_id).pack())])
-            else:
-                buttons.append([InlineKeyboardButton(text="⬆️ Улучшить Поле", callback_data=UpgradeCallback(action="buy_field", owner_id=user_id).pack())])
+        balance = await db.get_user_beer_rating(user_id)
+        farm_data = await db.get_user_farm_data(user_id)
+        now = datetime.now()
 
-    # --- РАЗДЕЛИТЕЛЬ (Твой код) ---
-    text += "\n────────────────────\n\n"
-
-    # --- БЛОК: ПИВОВАРНЯ (Твой код) ---
-    text += f"<b>🏭 Пивоварня — Уровень {brewery_lvl}</b>\n"
-    brewery_upgrade_timer = farm_data.get('brewery_upgrade_timer_end')
-
-    if brewery_upgrade_timer and now < brewery_upgrade_timer:
-        time_left = format_time_delta(brewery_upgrade_timer - now)
-        text += f"<i>(Строится... ⏳ {time_left})</i>\n"
-        buttons.append([InlineKeyboardButton(text=f"Пивоварня (Строится... ⏳ {time_left})", callback_data=UpgradeCallback(action="dummy_build", owner_id=user_id).pack())])
-    
-    else:
-        text += "📌 Текущие бонусы:\n"
-        text += f"• Награда за варку: +{brewery_stats.get('reward', '??')} 🍺\n"
-        text += f"• Время варки: {brewery_stats.get('brew_time_min', '??')} мин\n" 
+        field_lvl = farm_data.get('field_level', 1)
+        brewery_lvl = farm_data.get('brewery_level', 1)
         
-        if brewery_stats.get('max_level', False):
-            text += "\n<b>⭐ Пивоварня — максимальный уровень!</b>\n"
-            buttons.append([InlineKeyboardButton(text="✅ Пивоварня (Макс. Уровень)", callback_data=UpgradeCallback(action="dummy_max", owner_id=user_id).pack())])
+        field_stats = get_level_data(field_lvl, FIELD_UPGRADES)
+        brewery_stats = get_level_data(brewery_lvl, BREWERY_UPGRADES)
+        
+        text = (
+            f"<b>⭐ Улучшения</b>\n"
+            f"<i>Твой Рейтинг: {balance} 🍺</i>\n\n"
+        )
+        
+        buttons = []
+        
+        # --- БЛОК: ПОЛЕ (Твой код) ---
+        text += f"<b>🌱 Поле — Уровень {field_lvl}</b>\n"
+        field_upgrade_timer = farm_data.get('field_upgrade_timer_end')
+
+        if field_upgrade_timer and now < field_upgrade_timer:
+            time_left = format_time_delta(field_upgrade_timer - now)
+            text += f"<i>(Строится... ⏳ {time_left})</i>\n"
+            buttons.append([InlineKeyboardButton(text=f"Поле (Строится... ⏳ {time_left})", callback_data=UpgradeCallback(action="dummy_build", owner_id=user_id).pack())])
+        
         else:
-            next_brew_stats = BREWERY_UPGRADES.get(brewery_lvl + 1, {})
-            cost = next_brew_stats.get('cost')
-            time_h = next_brew_stats.get('time_h')
-
-            text += f"\n➡ Следующий уровень ({brewery_lvl + 1}):\n"
-            text += f"• Награда: +{brewery_stats.get('reward', '??')} → +{next_brew_stats.get('reward', '??')} 🍺\n"
-            text += f"• Время варки: {brewery_stats.get('brew_time_min', '??')}м → {next_brew_stats.get('brew_time_min', '??')}м\n" 
-
-            text += f"💰 Стоимость: {cost} 🍺\n"
-            text += f"⏳ Время улучшения: {time_h} ч\n"
-
-            if balance < cost:
-                buttons.append([InlineKeyboardButton(text=f"⛔ Недостаточно 🍺 ({cost})", callback_data=UpgradeCallback(action="dummy_money", owner_id=user_id).pack())])
+            text += "📌 Текущие бонусы:\n"
+            text += f"• Грядок: {field_stats.get('plots', '??')}\n"
+            text += f"• Шанс x2: {field_stats.get('chance_x2', '??')}%\n"
+            text += f"• Рост: 🌾 {field_stats.get('grow_time_min', {}).get('зерно', '??')}м / 🌱 {field_stats.get('grow_time_min', {}).get('хмель', '??')}м\n"
+            
+            if field_stats.get('max_level', False):
+                text += "\n<b>⭐ Поле — максимальный уровень!</b>\n"
+                buttons.append([InlineKeyboardButton(text="✅ Поле (Макс. Уровень)", callback_data=UpgradeCallback(action="dummy_max", owner_id=user_id).pack())])
             else:
-                buttons.append([InlineKeyboardButton(text="⬆️ Улучшить Пивоварню", callback_data=UpgradeCallback(action="buy_brewery", owner_id=user_id).pack())])
+                next_field_stats = FIELD_UPGRADES.get(field_lvl + 1, {})
+                cost = next_field_stats.get('cost')
+                time_h = next_field_stats.get('time_h')
+                
+                text += f"\n➡ Следующий уровень ({field_lvl + 1}):\n"
+                text += f"• Грядок: {field_stats.get('plots', '??')} → {next_field_stats.get('plots', '??')}\n"
+                text += f"• Шанс x2: {field_stats.get('chance_x2', '??')}% → {next_field_stats.get('chance_x2', '??')}%\n"
+                text += f"• Рост (🌾): {field_stats.get('grow_time_min', {}).get('зерно', '??')}м → {next_field_stats.get('grow_time_min', {}).get('зерно', '??')}м\n"
+                
+                text += f"💰 Стоимость: {cost} 🍺\n"
+                text += f"⏳ Время улучшения: {time_h} ч\n"
+                
+                if balance < cost:
+                    buttons.append([InlineKeyboardButton(text=f"⛔ Недостаточно 🍺 ({cost})", callback_data=UpgradeCallback(action="dummy_money", owner_id=user_id).pack())])
+                else:
+                    buttons.append([InlineKeyboardButton(text="⬆️ Улучшить Поле", callback_data=UpgradeCallback(action="buy_field", owner_id=user_id).pack())])
 
-    # --- РАЗДЕЛИТЕЛЬ (Твой код) ---
-    text += "\n────────────────────\n"
-    
-    # --- Кнопка НАЗАД (Твой код) ---
-    buttons.append(back_btn_to_farm(user_id))
-    
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        # --- РАЗДЕЛИТЕЛЬ (Твой код) ---
+        text += "\n────────────────────\n\n"
+
+        # --- БЛОК: ПИВОВАРНЯ (Твой код) ---
+        text += f"<b>🏭 Пивоварня — Уровень {brewery_lvl}</b>\n"
+        brewery_upgrade_timer = farm_data.get('brewery_upgrade_timer_end')
+
+        if brewery_upgrade_timer and now < brewery_upgrade_timer:
+            time_left = format_time_delta(brewery_upgrade_timer - now)
+            text += f"<i>(Строится... ⏳ {time_left})</i>\n"
+            buttons.append([InlineKeyboardButton(text=f"Пивоварня (Строится... ⏳ {time_left})", callback_data=UpgradeCallback(action="dummy_build", owner_id=user_id).pack())])
+        
+        else:
+            text += "📌 Текущие бонусы:\n"
+            text += f"• Награда за варку: +{brewery_stats.get('reward', '??')} 🍺\n"
+            text += f"• Время варки: {brewery_stats.get('brew_time_min', '??')} мин\n" 
+            
+            if brewery_stats.get('max_level', False):
+                text += "\n<b>⭐ Пивоварня — максимальный уровень!</b>\n"
+                buttons.append([InlineKeyboardButton(text="✅ Пивоварня (Макс. Уровень)", callback_data=UpgradeCallback(action="dummy_max", owner_id=user_id).pack())])
+            else:
+                next_brew_stats = BREWERY_UPGRADES.get(brewery_lvl + 1, {})
+                cost = next_brew_stats.get('cost')
+                time_h = next_brew_stats.get('time_h')
+
+                text += f"\n➡ Следующий уровень ({brewery_lvl + 1}):\n"
+                text += f"• Награда: +{brewery_stats.get('reward', '??')} → +{next_brew_stats.get('reward', '??')} 🍺\n"
+                text += f"• Время варки: {brewery_stats.get('brew_time_min', '??')}м → {next_brew_stats.get('brew_time_min', '??')}м\n" 
+
+                text += f"💰 Стоимость: {cost} 🍺\n"
+                text += f"⏳ Время улучшения: {time_h} ч\n"
+
+                if balance < cost:
+                    buttons.append([InlineKeyboardButton(text=f"⛔ Недостаточно 🍺 ({cost})", callback_data=UpgradeCallback(action="dummy_money", owner_id=user_id).pack())])
+                else:
+                    buttons.append([InlineKeyboardButton(text="⬆️ Улучшить Пивоварню", callback_data=UpgradeCallback(action="buy_brewery", owner_id=user_id).pack())])
+
+        # --- РАЗДЕЛИТЕЛЬ (Твой код) ---
+        text += "\n────────────────────\n"
+        
+        # --- Кнопка НАЗАД (Твой код) ---
+        buttons.append(back_btn_to_farm(user_id))
+        
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_farm_upgrades: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при загрузке Улучшений!", show_alert=True)
+        return
     await callback.answer()
 # --- ---
 
@@ -854,114 +908,128 @@ async def cq_farm_upgrades(callback: CallbackQuery, callback_data: FarmCallback,
 async def cq_upgrade_confirm(callback: CallbackQuery, callback_data: UpgradeCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
     
-    user_id = callback.from_user.id
-    building = "field" if callback_data.action == "buy_field" else "brewery"
-    
-    farm_data = await db.get_user_farm_data(user_id)
-    balance = await db.get_user_beer_rating(user_id)
-    
-    if building == "field":
-        level = farm_data.get('field_level', 1)
-        next_level_stats = get_level_data(level + 1, FIELD_UPGRADES)
-        building_name = "🌾 Поле"
-        block_warning = "На время улучшения твои [🌾 Грядки] **будут недоступны**."
-        confirm_callback = UpgradeCallback(action="confirm_field", owner_id=user_id).pack()
-    else:
-        level = farm_data.get('brewery_level', 1)
-        next_level_stats = get_level_data(level + 1, BREWERY_UPGRADES)
-        building_name = "🏭 Пивоварня"
-        block_warning = "На время улучшения [🏭 Пивоварня] **будет недоступна** (ты не сможешь варить)."
-        confirm_callback = UpgradeCallback(action="confirm_brewery", owner_id=user_id).pack()
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
+        building = "field" if callback_data.action == "buy_field" else "brewery"
+        
+        farm_data = await db.get_user_farm_data(user_id)
+        balance = await db.get_user_beer_rating(user_id)
+        
+        if building == "field":
+            level = farm_data.get('field_level', 1)
+            next_level_stats = get_level_data(level + 1, FIELD_UPGRADES)
+            building_name = "🌾 Поле"
+            block_warning = "На время улучшения твои [🌾 Грядки] **будут недоступны**."
+            confirm_callback = UpgradeCallback(action="confirm_field", owner_id=user_id).pack()
+        else:
+            level = farm_data.get('brewery_level', 1)
+            next_level_stats = get_level_data(level + 1, BREWERY_UPGRADES)
+            building_name = "🏭 Пивоварня"
+            block_warning = "На время улучшения [🏭 Пивоварня] **будет недоступна** (ты не сможешь варить)."
+            confirm_callback = UpgradeCallback(action="confirm_brewery", owner_id=user_id).pack()
 
-    cost = next_level_stats['cost']
-    time_h = next_level_stats['time_h']
+        cost = next_level_stats['cost']
+        time_h = next_level_stats['time_h']
 
-    if balance < cost:
-        await callback.answer(f"⛔ Недостаточно 🍺! Нужно {cost} 🍺.", show_alert=True)
+        if balance < cost:
+            await callback.answer(f"⛔ Недостаточно 🍺! Нужно {cost} 🍺.", show_alert=True)
+            return
+
+        text = (
+            f"<b>Подтверждение Прокачки</b>\n\n"
+            f"Ты улучшаешь <b>{building_name}</b> до <b>Ур. {level + 1}</b>.\n\n"
+            f"• <b>Цена:</b> {cost} 🍺\n"
+            f"• <b>Время:</b> {time_h} часов\n\n"
+            f"⚠️ {block_warning}\n\n"
+            f"Начать прокачку?"
+        )
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"✅ Да, начать ({time_h} ч)", callback_data=confirm_callback),
+                InlineKeyboardButton(text="❌ Нет, я передумал", callback_data=FarmCallback(action="upgrades", owner_id=user_id).pack())
+            ]
+        ])
+        
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_upgrade_confirm: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при подтверждении улучшения!", show_alert=True)
         return
-
-    text = (
-        f"<b>Подтверждение Прокачки</b>\n\n"
-        f"Ты улучшаешь <b>{building_name}</b> до <b>Ур. {level + 1}</b>.\n\n"
-        f"• <b>Цена:</b> {cost} 🍺\n"
-        f"• <b>Время:</b> {time_h} часов\n\n"
-        f"⚠️ {block_warning}\n\n"
-        f"Начать прокачку?"
-    )
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=f"✅ Да, начать ({time_h} ч)", callback_data=confirm_callback),
-            InlineKeyboardButton(text="❌ Нет, я передумал", callback_data=FarmCallback(action="upgrades", owner_id=user_id).pack())
-        ]
-    ])
-    
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
 @farm_router.callback_query(UpgradeCallback.filter(F.action.in_({"confirm_field", "confirm_brewery"})))
 async def cq_upgrade_do(callback: CallbackQuery, callback_data: UpgradeCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): return
     
-    user_id = callback.from_user.id
-    building = "field" if callback_data.action == "confirm_field" else "brewery"
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
+        building = "field" if callback_data.action == "confirm_field" else "brewery"
 
-    farm_data = await db.get_user_farm_data(user_id)
-    balance = await db.get_user_beer_rating(user_id)
-    
-    if farm_data.get(f"{building}_upgrade_timer_end"):
-        await callback.answer(f"⛔ Ошибка! {building} уже прокачивается!", show_alert=True)
+        farm_data = await db.get_user_farm_data(user_id)
+        balance = await db.get_user_beer_rating(user_id)
+        
+        if farm_data.get(f"{building}_upgrade_timer_end"):
+            await callback.answer(f"⛔ Ошибка! {building} уже прокачивается!", show_alert=True)
+            return
+
+        if building == "field":
+            level = farm_data.get('field_level', 1)
+            next_level_stats = get_level_data(level + 1, FIELD_UPGRADES)
+        else:
+            level = farm_data.get('brewery_level', 1)
+            next_level_stats = get_level_data(level + 1, BREWERY_UPGRADES)
+
+        cost = next_level_stats['cost']
+        time_h = next_level_stats['time_h']
+
+        if balance < cost:
+            await callback.answer(f"⛔ Недостаточно 🍺! Нужно {cost} 🍺.", show_alert=True)
+            await cq_farm_upgrades(callback, FarmCallback(action="upgrades", owner_id=user_id), db)
+            return
+
+        end_time = datetime.now() + timedelta(hours=time_h)
+        await db.start_upgrade(user_id, building, end_time, cost)
+        
+        await callback.answer(f"✅ Прокачка до Ур. {level + 1} началась! (Готово через {time_h} ч)")
+        await cq_farm_main_dashboard(callback, FarmCallback(action="main_dashboard", owner_id=user_id), db)
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_upgrade_do: {e}", exc_info=True)
+        await callback.answer("⛔ Критическая ошибка при начале улучшения!", show_alert=True)
         return
-
-    if building == "field":
-        level = farm_data.get('field_level', 1)
-        next_level_stats = get_level_data(level + 1, FIELD_UPGRADES)
-    else:
-        level = farm_data.get('brewery_level', 1)
-        next_level_stats = get_level_data(level + 1, BREWERY_UPGRADES)
-
-    cost = next_level_stats['cost']
-    time_h = next_level_stats['time_h']
-
-    if balance < cost:
-        await callback.answer(f"⛔ Недостаточно 🍺! Нужно {cost} 🍺.", show_alert=True)
-        await cq_farm_upgrades(callback, FarmCallback(action="upgrades", owner_id=user_id), db)
-        return
-
-    end_time = datetime.now() + timedelta(hours=time_h)
-    await db.start_upgrade(user_id, building, end_time, cost)
-    
-    await callback.answer(f"✅ Прокачка до Ур. {level + 1} началась! (Готово через {time_h} ч)")
-    await cq_farm_main_dashboard(callback, FarmCallback(action="main_dashboard", owner_id=user_id), db)
 
 # --- (Хэлпер) (Твой код) ---
 @farm_router.callback_query(FarmCallback.filter(F.action == "show_help"))
 async def cq_farm_show_help(callback: CallbackQuery, callback_data: FarmCallback, db: Database):
     if not await check_owner(callback, callback_data.owner_id): 
         return
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
+        
+        text = (
+            "<b>❓ Как играть на Ферме</b>\n\n"
+            "Цель: Варить 🍺 Пиво, чтобы получать 🍺 Рейтинг.\n\n"
+            "<b>1. 🌾 Поле (Грядки)</b>\n"
+            "• Нажми [🟦 Пусто], чтобы посадить <b>Семена</b>.\n"
+            "• Семена можно купить в [🏪 Магазине].\n"
+            "• Подожди таймер и собери [✅ Урожай].\n\n"
+            "<b>2. 🏭 Пивоварня</b>\n"
+            "• Когда у тебя есть <b>Урожай</b> (🌾 Зерно и 🌱 Хмель), нажми [🔥 Начать варку].\n"
+            "• Подожди таймер и забери [🏆 Награду] (это твой 🍺 Рейтинг).\n\n"
+            "<b>3. ⭐ Улучшения</b>\n"
+            "• Трать 🍺 Рейтинг, чтобы улучшать Поле и Пивоварню.\n"
+            "• Улучшение <b>Поля</b>: Дает больше Грядок и ускоряет Рост.\n"
+            "• Улучшение <b>Пивоварни</b>: Дает больше 🍺 Рейтинга и ускоряет Варку."
+        )
 
-    user_id = callback.from_user.id
-    
-    text = (
-        "<b>❓ Как играть на Ферме</b>\n\n"
-        "Цель: Варить 🍺 Пиво, чтобы получать 🍺 Рейтинг.\n\n"
-        "<b>1. 🌾 Поле (Грядки)</b>\n"
-        "• Нажми [🟦 Пусто], чтобы посадить <b>Семена</b>.\n"
-        "• Семена можно купить в [🏪 Магазине].\n"
-        "• Подожди таймер и собери [✅ Урожай].\n\n"
-        "<b>2. 🏭 Пивоварня</b>\n"
-        "• Когда у тебя есть <b>Урожай</b> (🌾 Зерно и 🌱 Хмель), нажми [🔥 Начать варку].\n"
-        "• Подожди таймер и забери [🏆 Награду] (это твой 🍺 Рейтинг).\n\n"
-        "<b>3. ⭐ Улучшения</b>\n"
-        "• Трать 🍺 Рейтинг, чтобы улучшать Поле и Пивоварню.\n"
-        "• Улучшение <b>Поля</b>: Дает больше Грядок и ускоряет Рост.\n"
-        "• Улучшение <b>Пивоварни</b>: Дает больше 🍺 Рейтинга и ускоряет Варку."
-    )
-
-    kb = [back_btn_to_farm(user_id)]
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        kb = [back_btn_to_farm(user_id)]
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_farm_show_help: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при загрузке Помощи!", show_alert=True)
+        return
     await callback.answer()
 # --- ---
 
@@ -987,134 +1055,146 @@ async def cq_dummy_max(callback: CallbackQuery, callback_data: UpgradeCallback):
 # --- ---
 
 # --- ✅✅✅ НОВЫЙ КОД: ДОСКА ЗАКАЗОВ ✅✅✅ ---
-# (Добавлены обработчики, которые используют импортированный FARM_ORDER_POOL)
-
 @farm_router.callback_query(FarmCallback.filter(F.action == "orders_menu"))
 async def cq_farm_orders_menu(callback: CallbackQuery, db: Database, callback_data: FarmCallback):
-    """(Новый) Показывает 3 ежедневных заказа."""
+    """(Новый) Показывает 3 ежедневных заказа. Обернут в try/except для предотвращения зависания."""
     
     if not await check_owner(callback, callback_data.owner_id):
         return
         
-    user_id = callback.from_user.id
-    
-    # 1. (Сбрасываем заказы, если 24ч прошли)
-    await db.check_and_reset_orders(user_id)
-    
-    # 2. (Получаем 3 текущих заказа)
-    orders = await db.get_user_orders(user_id)
-    
-    # 3. (Получаем инвентарь для проверки)
-    inventory = await db.get_user_inventory(user_id)
-    
-    text = (
-        "<b>📋 Доска Заказов</b>\n\n"
-        "Поручения от бармена. Обновляются раз в 24 часа.\n"
-    )
-    
-    buttons = []
-    
-    if not orders:
-        text += "\n<i>(Новые заказы появятся в ближайшее время...)</i>"
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
         
-    for slot_id, order_id, is_completed in orders:
-        if order_id not in FARM_ORDER_POOL:
-            continue
+        # 1. (Сбрасываем заказы, если 24ч прошли)
+        await db.check_and_reset_orders(user_id)
+        
+        # 2. (Получаем 3 текущих заказа)
+        orders = await db.get_user_orders(user_id)
+        
+        # 3. (Получаем инвентарь для проверки)
+        inventory = await db.get_user_inventory(user_id)
+        
+        text = (
+            "<b>📋 Доска Заказов</b>\n\n"
+            "Поручения от бармена. Обновляются раз в 24 часа.\n"
+        )
+        
+        buttons = []
+        
+        if not orders:
+            text += "\n<i>(Новые заказы появятся в ближайшее время...)</i>"
             
-        order = FARM_ORDER_POOL[order_id]
-        
-        # (Форматируем награду для кнопки)
-        reward_text = ""
-        if order['reward_type'] == 'beer':
-            reward_text = f"+{order['reward_amount']} 🍺"
-        elif order['reward_type'] == 'item':
-            reward_name = FARM_ITEM_NAMES.get(order['reward_id'], 'Предмет')
-            reward_text = f"+{order['reward_amount']}x {reward_name}"
-        
-        
-        if is_completed:
-            text += f"\n✅ <s>{order['text']}</s> (Выполнено)\n"
-        
-        else:
-            # (Проверяем, хватает ли ресурсов)
-            has_items = inventory.get(order['item_id'], 0) >= order['item_amount']
+        for slot_id, order_id, is_completed in orders:
+            if order_id not in FARM_ORDER_POOL:
+                continue
+                
+            order = FARM_ORDER_POOL[order_id]
             
-            if has_items:
-                text += f"\n➡️ <b>{order['text']}</b>\n"
-                buttons.append(
-                    InlineKeyboardButton(
-                        text=f"✅ Сдать (Награда: {reward_text})",
-                        callback_data=FarmCallback(
-                            action="order_complete", 
-                            owner_id=user_id,
-                            slot_id=slot_id,
-                            order_id=order_id 
-                        ).pack()
-                    )
-                )
+            # (Форматируем награду для кнопки)
+            reward_text = ""
+            if order['reward_type'] == 'beer':
+                reward_text = f"+{order['reward_amount']} 🍺"
+            elif order['reward_type'] == 'item':
+                reward_name = FARM_ITEM_NAMES.get(order['reward_id'], 'Предмет')
+                reward_text = f"+{order['reward_amount']}x {reward_name}"
+            
+            
+            if is_completed:
+                text += f"\n✅ <s>{order['text']}</s> (Выполнено)\n"
             
             else:
-                text += f"\n❌ {order['text']} (Не хватает ресурсов)\n"
+                # (Проверяем, хватает ли ресурсов)
+                has_items = inventory.get(order['item_id'], 0) >= order['item_amount']
+                
+                if has_items:
+                    text += f"\n➡️ <b>{order['text']}</b>\n"
+                    buttons.append(
+                        InlineKeyboardButton(
+                            text=f"✅ Сдать (Награда: {reward_text})",
+                            callback_data=FarmCallback(
+                                action="order_complete", 
+                                owner_id=user_id,
+                                slot_id=slot_id,
+                                order_id=order_id 
+                            ).pack()
+                        )
+                    )
+                
+                else:
+                    text += f"\n❌ {order['text']} (Не хватает ресурсов)\n"
 
-    # (Делаем кнопки "Сдать" по одной в ряд + кнопка Назад)
-    kb_rows = [[btn] for btn in buttons]
-    kb_rows.append(back_btn_to_farm(user_id))
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=keyboard)
-    await callback.answer()
+        # (Делаем кнопки "Сдать" по одной в ряд + кнопка Назад)
+        kb_rows = [[btn] for btn in buttons]
+        kb_rows.append(back_btn_to_farm(user_id))
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+        
+        with suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_farm_orders_menu: {e}", exc_info=True)
+        await callback.answer("⛔ Ошибка при загрузке Заказов!", show_alert=True)
+        return
+
+    await callback.answer() # ✅ ГАРАНТИЯ ОТВЕТА
 
 @farm_router.callback_query(FarmCallback.filter(F.action == "order_complete"))
 async def cq_farm_order_complete(callback: CallbackQuery, db: Database, callback_data: FarmCallback):
-    """(Новый) Выполняет заказ (списывает и награждает)."""
+    """(Новый) Выполняет заказ (списывает и награждает). Обернут в try/except для предотвращения зависания."""
     
     if not await check_owner(callback, callback_data.owner_id):
         return
         
-    user_id = callback.from_user.id
-    slot_id = callback_data.slot_id
-    order_id = callback_data.order_id
-    
-    if order_id not in FARM_ORDER_POOL:
-        await callback.answer("Ошибка! Этот заказ устарел.", show_alert=True)
-        return
+    try: # ✅ ДОБАВЛЕН TRY
+        user_id = callback.from_user.id
+        slot_id = callback_data.slot_id
+        order_id = callback_data.order_id
         
-    order = FARM_ORDER_POOL[order_id]
-    
-    # --- (КРИТИЧЕСКАЯ ПРОВЕРКА) ---
-    inventory = await db.get_user_inventory(user_id)
-    if inventory.get(order['item_id'], 0) < order['item_amount']:
-        await callback.answer("Упс! Кажется, у тебя уже не хватает ресурсов.", show_alert=True)
-        # (Обновляем меню, чтобы кнопка пропала)
+        if order_id not in FARM_ORDER_POOL:
+            await callback.answer("Ошибка! Этот заказ устарел.", show_alert=True)
+            return
+            
+        order = FARM_ORDER_POOL[order_id]
+        
+        # --- (КРИТИЧЕСКАЯ ПРОВЕРКА) ---
+        inventory = await db.get_user_inventory(user_id)
+        if inventory.get(order['item_id'], 0) < order['item_amount']:
+            await callback.answer("Упс! Кажется, у тебя уже не хватает ресурсов.", show_alert=True)
+            # (Обновляем меню, чтобы кнопка пропала)
+            await cq_farm_orders_menu(callback, db, callback_data)
+            return
+
+        # (Помечаем заказ как выполненный)
+        success = await db.complete_order(user_id, slot_id)
+        if not success:
+            await callback.answer("Этот заказ уже выполнен!", show_alert=True)
+            return
+            
+        # --- (ТРАНЗАКЦИЯ) ---
+        
+        # 1. Списываем ресурсы
+        await db.modify_inventory(user_id, order['item_id'], -order['item_amount'])
+        
+        # 2. Выдаем награду
+        reward_text_alert = ""
+        if order['reward_type'] == 'beer':
+            await db.change_rating(user_id, order['reward_amount'])
+            reward_text_alert = f"+{order['reward_amount']} 🍺"
+            
+        elif order['reward_type'] == 'item':
+            await db.modify_inventory(user_id, order['reward_id'], order['reward_amount'])
+            reward_name = FARM_ITEM_NAMES.get(order['reward_id'], 'Предмет')
+            reward_text_alert = f"+{order['reward_amount']}x {reward_name}"
+
+        await callback.answer(f"Заказ выполнен! Награда: {reward_text_alert}", show_alert=True)
+        
+        # (Обновляем меню Доски Заказов)
         await cq_farm_orders_menu(callback, db, callback_data)
-        return
 
-    # (Помечаем заказ как выполненный)
-    success = await db.complete_order(user_id, slot_id)
-    if not success:
-        await callback.answer("Этот заказ уже выполнен!", show_alert=True)
+    except Exception as e: # ✅ ДОБАВЛЕН EXCEPT
+        logging.error(f"Critical error in cq_farm_order_complete: {e}", exc_info=True)
+        await callback.answer("⛔ Критическая ошибка при выполнении заказа! Попробуйте снова.", show_alert=True)
+        # Если здесь ошибка, то cq_farm_orders_menu не вызван, 
+        # но answer() был вызван в блоке except.
         return
-        
-    # --- (ТРАНЗАКЦИЯ) ---
-    
-    # 1. Списываем ресурсы
-    await db.modify_inventory(user_id, order['item_id'], -order['item_amount'])
-    
-    # 2. Выдаем награду
-    reward_text_alert = ""
-    if order['reward_type'] == 'beer':
-        await db.change_rating(user_id, order['reward_amount'])
-        reward_text_alert = f"+{order['reward_amount']} 🍺"
-        
-    elif order['reward_type'] == 'item':
-        await db.modify_inventory(user_id, order['reward_id'], order['reward_amount'])
-        reward_name = FARM_ITEM_NAMES.get(order['reward_id'], 'Предмет')
-        reward_text_alert = f"+{order['reward_amount']}x {reward_name}"
-
-    await callback.answer(f"Заказ выполнен! Награда: {reward_text_alert}", show_alert=True)
-    
-    # (Обновляем меню Доски Заказов)
-    await cq_farm_orders_menu(callback, db, callback_data)
 # --- ---
