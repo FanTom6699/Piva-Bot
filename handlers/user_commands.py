@@ -128,7 +128,7 @@ async def cmd_top(message: Message, bot: Bot, db: Database):
         
     await message.answer(top_text, parse_mode='HTML')
 
-# --- ✅✅✅ КОМАНДА ПРОФИЛЯ (/me) (С ТВОИМ СПИСКОМ) ✅✅✅ ---
+# --- ✅✅✅ КОМАНДА ПРОФИЛЯ (/me) (ТВОЙ КОД) ✅✅✅ ---
 @user_commands_router.message(Command("me", "profile"))
 async def cmd_me(message: Message, bot: Bot, db: Database):
     user = message.from_user
@@ -199,3 +199,115 @@ async def cmd_me(message: Message, bot: Bot, db: Database):
 
     # Отправляем с явным указанием parse_mode='HTML'
     await message.answer(profile_text, parse_mode='HTML')
+
+
+# --- ✅✅✅ НОВЫЙ КОД ДЛЯ !НАПОИТЬ ✅✅✅ ---
+
+@user_commands_router.message(Command(commands=["напоить", "Напоить"], prefix="!"))
+async def cmd_give_beer(message: Message, bot: Bot, db: Database):
+    
+    # 1. Проверяем отправителя
+    if not await check_user_registered(message, bot, db):
+        return
+        
+    sender = message.from_user
+    sender_id = sender.id
+    sender_name = html.quote(sender.full_name)
+    
+    args = message.text.split()
+    reply = message.reply_to_message
+    
+    target_id = None
+    target_name = None
+    amount = None
+    
+    hint_text = (
+        "<b>Ошибка!</b> 😥 Неправильный формат.\n\n"
+        "<b>Как использовать:</b>\n"
+        "<code>!напоить &lt;@username&gt; &lt;кол-во&gt;</code>\n"
+        "<code>!напоить &lt;ID&gt; &lt;кол-во&gt;</code>\n"
+        "<code>!напоить &lt;кол-во&gt;</code> (в ответ на сообщение)"
+    )
+
+    try:
+        # 2. Ищем цель и количество
+        # Случай 1: В ответ на сообщение (!напоить 100)
+        if reply:
+            if len(args) != 2 or not args[1].isdigit():
+                await message.reply(hint_text, parse_mode="HTML")
+                return
+            
+            target_user = reply.from_user
+            target_id = target_user.id
+            target_name = html.quote(target_user.full_name)
+            amount = int(args[1])
+
+        # Случай 2: Через @username или ID (!напоить @user 100)
+        elif len(args) == 3 and args[2].isdigit():
+            amount = int(args[2])
+            target_input = args[1]
+            
+            if target_input.startswith('@'):
+                username = target_input.lstrip('@')
+                # (Используем ОБНОВЛЕННУЮ функцию из database.py)
+                user_data = await db.get_user_by_username(username)
+                if user_data:
+                    target_id = user_data[0] # user_id
+                    target_name = html.quote(user_data[1]) # first_name
+                else:
+                    await message.reply(f"Не могу найти пользователя {target_input} в базе данных бота.")
+                    return
+
+            elif target_input.isdigit():
+                target_id = int(target_input)
+                # (Используем НОВУЮ функцию из database.py)
+                user_data = await db.get_user_by_id(target_id)
+                if user_data:
+                    # user_data[0] это first_name, [1] это last_name
+                    target_name = html.quote(user_data[0] + (f" {user_data[1]}" if user_data[1] else ""))
+                else:
+                    await message.reply(f"Не могу найти пользователя с ID {target_id} в базе данных бота.")
+                    return
+            
+            else:
+                await message.reply(hint_text, parse_mode="HTML")
+                return
+        
+        # Случай 3: Неверный формат
+        else:
+            await message.reply(hint_text, parse_mode="HTML")
+            return
+
+        # 3. Проверки
+        if amount <= 0:
+            await message.reply("Количество пива должно быть больше нуля!")
+            return
+            
+        if target_id == sender_id:
+            await message.reply("Нельзя напоить самого себя! 😅")
+            return
+
+        # (Проверяем, что ПОЛУЧАТЕЛЬ зареган)
+        if not await db.user_exists(target_id):
+            await message.reply(f"<b>{target_name}</b> еще не зарегистрирован(а) в боте. Он(а) должен(на) сначала написать <code>/start</code> боту в ЛС.")
+            return
+            
+        # 4. Проверка баланса отправителя
+        sender_balance = await db.get_user_beer_rating(sender_id)
+        if sender_balance < amount:
+            await message.reply(f"У тебя не хватает пива! 🍻\nНужно: {amount} 🍺\nУ тебя: {sender_balance} 🍺.")
+            return
+            
+        # 5. Транзакция
+        await db.change_rating(sender_id, -amount)
+        await db.change_rating(target_id, amount)
+        
+        # 6. Успех
+        await message.reply(
+            f"🍻 <b>Угощение!</b> 🍻\n\n"
+            f"<b>{sender_name}</b> угостил(а) <b>{target_name}</b>, передав <b>{amount} 🍺</b>!",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await message.reply(f"Что-то пошло не так... Ошибка: {e}")
