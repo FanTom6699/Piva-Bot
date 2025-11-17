@@ -1,10 +1,10 @@
 # settings.py
 import logging
 from database import Database
-from typing import Dict, Any, List, Tuple
 
-# Названия настроек на русском языке для /admin
+# Названия настроек на русском языке для админ-панели
 SETTINGS_NAMES = {
+    # Общие
     "beer_cooldown": "Кулдаун /beer (сек)",
     "jackpot_chance": "Шанс Джекпота (1 к X)",
     "roulette_cooldown": "Кулдаун Рулетки (сек)",
@@ -12,105 +12,92 @@ SETTINGS_NAMES = {
     "roulette_max_bet": "Макс. ставка Рулетки",
     "ladder_min_bet": "Мин. ставка Лесенки",
     "ladder_max_bet": "Макс. ставка Лесенки",
-    "raid_boss_health": "Здоровье Рейд-Босса",
-    "raid_reward_pool": "Награда Рейд-Босса",
-    "raid_duration_hours": "Длительность Рейда (часы)",
+    
+    # Рейд
+    "raid_boss_health": "HP Босса",
+    "raid_reward_pool": "Награда за Босса",
+    "raid_duration_hours": "Длительность Рейда (ч)",
     "raid_hit_cooldown_minutes": "Кулдаун удара (мин)",
     "raid_strong_hit_cost": "Цена сильного удара",
-    "raid_strong_hit_damage_min": "Мин. урон (сильный)",
-    "raid_strong_hit_damage_max": "Макс. урон (сильный)",
-    "raid_normal_hit_damage_min": "Мин. урон (обычный)",
-    "raid_normal_hit_damage_max": "Макс. урон (обычный)",
-    "raid_reminder_hours": "Напоминание о Рейде (часы)",
+    "raid_strong_hit_damage_min": "Урон сильн. (мин)",
+    "raid_strong_hit_damage_max": "Урон сильн. (макс)",
+    "raid_normal_hit_damage_min": "Урон обычн. (мин)",
+    "raid_normal_hit_damage_max": "Урон обычн. (макс)",
+    "raid_reminder_hours": "Напоминание (ч)",
 }
 
 class SettingsManager:
     def __init__(self):
-        logging.info("Инициализация Менеджера Настроек...")
-        # --- ОБЫЧНЫЕ ---
+        # --- Значения по умолчанию ---
+        
+        # Пиво и Казино
         self.beer_cooldown = 7200
-        self.jackpot_chance = 150
-        # --- РУЛЕТКА ---
-        self.roulette_cooldown = 600
-        self.roulette_min_bet = 5
-        self.roulette_max_bet = 100
-        # --- ЛЕСЕНКА ---
-        self.ladder_min_bet = 5
-        self.ladder_max_bet = 100
-        # --- РЕЙДЫ ---
-        self.raid_boss_health = 100000
+        self.jackpot_chance = 100
+        self.roulette_cooldown = 300
+        self.roulette_min_bet = 10
+        self.roulette_max_bet = 1000
+        self.ladder_min_bet = 10
+        self.ladder_max_bet = 500
+        
+        # Рейд
+        self.raid_boss_health = 1000
         self.raid_reward_pool = 5000
         self.raid_duration_hours = 24
-        self.raid_hit_cooldown_minutes = 30
-        self.raid_strong_hit_cost = 100
-        self.raid_strong_hit_damage_min = 500
-        self.raid_strong_hit_damage_max = 1000
+        self.raid_hit_cooldown_minutes = 0
+        self.raid_strong_hit_cost = 50
+        self.raid_strong_hit_damage_min = 30
+        self.raid_strong_hit_damage_max = 60
         self.raid_normal_hit_damage_min = 10
-        self.raid_normal_hit_damage_max = 50
-        self.raid_reminder_hours = 6
+        self.raid_normal_hit_damage_max = 20
+        self.raid_reminder_hours = 4
 
     async def load_settings(self, db: Database):
-        """Загружает все настройки из базы данных в экземпляр класса."""
-        logging.info("Загрузка настроек из БД...")
-        try:
-            settings_data = await db.get_all_settings()
-            
-            if isinstance(settings_data, list):
-                 settings_data = dict(settings_data) if settings_data else {}
-            
-            for key, value in settings_data.items():
-                if hasattr(self, key):
-                    setattr(self, key, int(value))
-            logging.info("Настройки успешно загружены.")
-        except Exception as e:
-            logging.error(f"Ошибка при загрузке настроек: {e}. Используются значения по умолчанию.")
+        """Загружает все настройки из БД, обновляя дефолтные."""
+        settings = await db.get_all_settings()
+        for key, value in settings.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        logging.info("Настройки успешно загружены.")
 
     async def reload_setting(self, db: Database, key: str):
-        """Перезагружает одну конкретную настройку из БД."""
-        try:
-            if hasattr(self, key):
-                value = await db.get_setting(key)
-                setattr(self, key, int(value))
-                logging.info(f"Настройка '{key}' перезагружена. Новое значение: {value}")
-        except Exception as e:
-            logging.error(f"Ошибка при перезагрузке настройки '{key}': {e}")
+        """Перезагружает конкретную настройку."""
+        val = await db.get_setting(key)
+        if val is not None and hasattr(self, key):
+            setattr(self, key, val)
+
+    async def get_all_settings_dict(self):
+        """Возвращает словарь всех настроек для генерации кнопок."""
+        # Фильтруем только то, что есть в SETTINGS_NAMES (скрываем лишнее)
+        return {k: v for k, v in self.__dict__.items() if k in SETTINGS_NAMES}
+
+    # --- МЕТОДЫ ФОРМАТИРОВАНИЯ ТЕКСТА (Для Админки) ---
 
     def _format_setting_line(self, key: str) -> str:
-        """Форматирует одну строку настройки для вывода."""
         name = SETTINGS_NAMES.get(key, key)
-        value = getattr(self, key, "N/A")
-        return f"• <code>{name}</code>: <b>{value}</b>\n"
+        value = getattr(self, key, "???")
+        return f"• {name}: <b>{value}</b>\n"
 
-    def get_all_settings_text(self) -> str:
-        """Возвращает отформатированный текст со всеми настройками для админ-панели."""
-        text = "<b>⚙️ Текущие настройки Бота</b>\n\n"
-        
-        text += "<b>Общие:</b>\n"
-        text += self._format_setting_line("beer_cooldown")
-        text += self._format_setting_line("jackpot_chance")
-        
-        text += "\n<b>Мини-Игры:</b>\n"
-        text += self._format_setting_line("roulette_cooldown")
-        text += self._format_setting_line("roulette_min_bet")
-        text += self._format_setting_line("roulette_max_bet")
-        text += self._format_setting_line("ladder_min_bet")
-        text += self._format_setting_line("ladder_max_bet")
-        
-        text += self.get_raid_settings_text() 
-
+    def get_common_settings_text(self) -> str:
+        """Возвращает текст общих настроек (Пиво, Рулетка, Лесенка)."""
+        text = ""
+        keys = [
+            "beer_cooldown", "jackpot_chance", 
+            "roulette_cooldown", "roulette_min_bet", "roulette_max_bet",
+            "ladder_min_bet", "ladder_max_bet"
+        ]
+        for key in keys:
+            text += self._format_setting_line(key)
         return text
 
     def get_raid_settings_text(self) -> str:
-        """Возвращает отформатированный текст только для настроек Рейда."""
-        text = "\n<b>👹 Ивент 'Вышибала' (Рейд):</b>\n"
-        text += self._format_setting_line("raid_boss_health")
-        text += self._format_setting_line("raid_reward_pool")
-        text += self._format_setting_line("raid_duration_hours")
-        text += self._format_setting_line("raid_hit_cooldown_minutes")
-        text += self._format_setting_line("raid_normal_hit_damage_min")
-        text += self._format_setting_line("raid_normal_hit_damage_max")
-        text += self._format_setting_line("raid_strong_hit_cost")
-        text += self._format_setting_line("raid_strong_hit_damage_min")
-        text += self._format_setting_line("raid_strong_hit_damage_max")
-        text += self._format_setting_line("raid_reminder_hours")
+        """Возвращает текст настроек Рейда."""
+        text = "\n<b>👹 Рейд:</b>\n"
+        keys = [
+            "raid_boss_health", "raid_reward_pool", "raid_duration_hours", 
+            "raid_hit_cooldown_minutes", "raid_reminder_hours",
+            "raid_strong_hit_cost", "raid_strong_hit_damage_min", "raid_strong_hit_damage_max",
+            "raid_normal_hit_damage_min", "raid_normal_hit_damage_max"
+        ]
+        for key in keys:
+            text += self._format_setting_line(key)
         return text
