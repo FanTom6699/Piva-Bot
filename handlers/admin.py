@@ -1,10 +1,11 @@
 # handlers/admin.py
 import asyncio
+import os
 from contextlib import suppress
 import logging
 
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.filters import Command, Filter, StateFilter
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
@@ -45,306 +46,215 @@ class AdminRaidCallbackData(CallbackData, prefix="admin_raid"):
     page: int = 0
 
 # --- Вспомогательные функции для меню ---
+
 async def get_main_admin_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🍺 Выдать пиво", callback_data=AdminCallbackData(action="give_beer").pack())],
-        [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data=AdminCallbackData(action="broadcast").pack())],
-        [InlineKeyboardButton(text="📊 Статистика", callback_data=AdminCallbackData(action="stats").pack())],
-        [InlineKeyboardButton(text="⚙️ Настройки бота", callback_data=AdminCallbackData(action="settings").pack())],
-        [InlineKeyboardButton(text="⚔️ Управление Ивентами", callback_data=AdminCallbackData(action="events").pack())]
-    ])
+    kb = [
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data=AdminCallbackData(action="broadcast").pack())],
+        [InlineKeyboardButton(text="🍺 Выдать рейтинг", callback_data=AdminCallbackData(action="give_beer").pack())],
+        [InlineKeyboardButton(text="⚙️ Настройки игры", callback_data=AdminCallbackData(action="settings").pack())],
+        [InlineKeyboardButton(text="👹 Управление Рейдами", callback_data=AdminCallbackData(action="raids").pack())],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data=AdminCallbackData(action="close").pack())]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
 
-async def get_settings_menu(settings_manager: SettingsManager) -> (str, InlineKeyboardMarkup):
-    """Генерирует текст и клавиатуру для меню настроек."""
-    text = (
-        f"{settings_manager.get_all_settings_text()}\n\n"
-        f"<b>Какую настройку вы хотите изменить?</b>"
-    )
+async def get_settings_menu(settings: SettingsManager) -> (str, InlineKeyboardMarkup):
+    text = "<b>⚙️ Настройки игры:</b>\n\n"
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        # Общие
-        [InlineKeyboardButton(text="Кулдаун /beer", callback_data=AdminSettingsCallbackData(setting_key="beer_cooldown").pack())],
-        [InlineKeyboardButton(text="Шанс Джекпота (1 к X)", callback_data=AdminSettingsCallbackData(setting_key="jackpot_chance").pack())],
-        
-        # Игры
-        [InlineKeyboardButton(text="Кулдаун Рулетки", callback_data=AdminSettingsCallbackData(setting_key="roulette_cooldown").pack())],
-        [
-            InlineKeyboardButton(text="Мин. Рулетка", callback_data=AdminSettingsCallbackData(setting_key="roulette_min_bet").pack()),
-            InlineKeyboardButton(text="Макс. Рулетка", callback_data=AdminSettingsCallbackData(setting_key="roulette_max_bet").pack())
-        ],
-        [
-            InlineKeyboardButton(text="Мин. Лесенка", callback_data=AdminSettingsCallbackData(setting_key="ladder_min_bet").pack()),
-            InlineKeyboardButton(text="Макс. Лесенка", callback_data=AdminSettingsCallbackData(setting_key="ladder_max_bet").pack())
-        ],
+    # Общие настройки
+    text += "<b>Общие:</b>\n"
+    text += settings.get_common_settings_text()
+    
+    # Рейд
+    text += settings.get_raid_settings_text()
 
-        # Настройки Рейда
-        [InlineKeyboardButton(text="Здоровье Босса", callback_data=AdminSettingsCallbackData(setting_key="raid_boss_health").pack())],
-        [InlineKeyboardButton(text="Награда Рейда", callback_data=AdminSettingsCallbackData(setting_key="raid_reward_pool").pack())],
-        [InlineKeyboardButton(text="Длит. Рейда (ч)", callback_data=AdminSettingsCallbackData(setting_key="raid_duration_hours").pack())],
-        [InlineKeyboardButton(text="КД удара (мин)", callback_data=AdminSettingsCallbackData(setting_key="raid_hit_cooldown_minutes").pack())],
-        [
-            InlineKeyboardButton(text="Мин. урон (об)", callback_data=AdminSettingsCallbackData(setting_key="raid_normal_hit_damage_min").pack()),
-            InlineKeyboardButton(text="Макс. урон (об)", callback_data=AdminSettingsCallbackData(setting_key="raid_normal_hit_damage_max").pack())
-        ],
-        [InlineKeyboardButton(text="Цена сильного уд.", callback_data=AdminSettingsCallbackData(setting_key="raid_strong_hit_cost").pack())],
-        [
-            InlineKeyboardButton(text="Мин. урон (сил)", callback_data=AdminSettingsCallbackData(setting_key="raid_strong_hit_damage_min").pack()),
-            InlineKeyboardButton(text="Макс. урон (сил)", callback_data=AdminSettingsCallbackData(setting_key="raid_strong_hit_damage_max").pack())
-        ],
+    kb = []
+    # Генерируем кнопки для каждого ключа настроек
+    all_settings = await settings.get_all_settings_dict()
+    
+    # Сортируем для удобства, разбиваем на строки по 2
+    sorted_keys = sorted(all_settings.keys())
+    row = []
+    for key in sorted_keys:
+        # Сокращаем длинные названия для кнопок
+        btn_text = key.replace("raid_", "R_").replace("mafia_", "M_")
+        row.append(InlineKeyboardButton(
+            text=f"{btn_text} ({all_settings[key]})", 
+            callback_data=AdminSettingsCallbackData(setting_key=key).pack()
+        ))
+        if len(row) == 2:
+            kb.append(row)
+            row = []
+    if row: kb.append(row)
+    
+    kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=AdminCallbackData(action="main").pack())])
+    return text, InlineKeyboardMarkup(inline_keyboard=kb)
 
-        [InlineKeyboardButton(text="⬅️ Назад в админ-меню", callback_data=AdminCallbackData(action="main_admin_menu").pack())]
-    ])
-    return text, keyboard
-
-async def get_events_menu() -> (str, InlineKeyboardMarkup):
-    text = "<b>⚔️ Управление Ивентами</b>\n\nВыберите ивент для настройки или запуска:"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👹 Вышибала (Рейд-Босс)", callback_data=AdminRaidCallbackData(action="menu").pack())],
-        [InlineKeyboardButton(text="⬅️ Назад в админ-меню", callback_data=AdminCallbackData(action="main_admin_menu").pack())]
-    ])
-    return text, keyboard
-
-# --- АДМИН-ПАНЕЛЬ (admin_router) ---
-@admin_router.message(Command("cancel"), IsAdmin(), StateFilter("*"))
-async def cancel_handler(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    if current_state is None:
-        return
-    await state.clear()
-    await message.answer("Действие отменено.")
+# --- ХЭНДЛЕРЫ ---
 
 @admin_router.message(Command("admin"), IsAdmin())
-async def cmd_admin_panel(message: Message):
-    await message.answer("Добро пожаловать в админ-панель!", reply_markup=await get_main_admin_keyboard())
+async def cmd_admin(message: Message):
+    await message.answer("👋 <b>Админ-панель</b>", reply_markup=await get_main_admin_keyboard(), parse_mode='HTML')
 
-@admin_router.callback_query(AdminCallbackData.filter(), IsAdmin())
-async def handle_admin_callback(callback: CallbackQuery, callback_data: AdminCallbackData, state: FSMContext, db: Database, settings: SettingsManager):
-    action = callback_data.action
-    await callback.answer()
+# --- ✅ НОВАЯ КОМАНДА: СКАЧАТЬ БД ---
+@admin_router.message(Command("get_db"), IsAdmin())
+async def cmd_download_db(message: Message):
+    # Пути для проверки (Render Disk vs Local)
+    paths_to_check = [
+        '/data/bot_database.db',  # Путь на Render (Disk)
+        'bot_database.db'         # Локальный путь
+    ]
     
-    if action == "main_admin_menu":
-        await callback.message.edit_text("Добро пожаловать в админ-панель!", reply_markup=await get_main_admin_keyboard())
+    file_path = None
+    for path in paths_to_check:
+        if os.path.exists(path):
+            file_path = path
+            break
+    
+    if file_path:
+        await message.answer("📂 Загружаю базу данных...")
+        try:
+            # Отправляем файл
+            db_file = FSInputFile(file_path)
+            await message.answer_document(db_file, caption=f"📦 Бэкап базы данных\nПуть: {file_path}")
+        except Exception as e:
+            await message.answer(f"⚠️ Ошибка при отправке файла: {e}")
+    else:
+        await message.answer("⛔ Файл базы данных не найден!\nЯ искал в: /data/bot_database.db и bot_database.db")
+
+# --- Callbacks: Главное меню ---
+
+@admin_router.callback_query(AdminCallbackData.filter(F.action == "main"), IsAdmin())
+async def cq_admin_main(callback: CallbackQuery):
+    await callback.message.edit_text("👋 <b>Админ-панель</b>", reply_markup=await get_main_admin_keyboard(), parse_mode='HTML')
+    await callback.answer()
+
+@admin_router.callback_query(AdminCallbackData.filter(F.action == "close"), IsAdmin())
+async def cq_admin_close(callback: CallbackQuery):
+    await callback.message.delete()
+    await callback.answer()
+
+# --- Callbacks: Рассылка ---
+
+@admin_router.callback_query(AdminCallbackData.filter(F.action == "broadcast"), IsAdmin())
+async def cq_admin_broadcast(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("📢 Введите сообщение для рассылки (поддерживается HTML, фото/видео):")
+    await state.set_state(AdminStates.broadcast_message)
+    await callback.answer()
+
+@admin_router.message(AdminStates.broadcast_message, IsAdmin())
+async def process_broadcast(message: Message, state: FSMContext, bot: Bot, db: Database):
+    # Получаем список всех пользователей (нужен метод в DB, добавим простой SQL тут или в DB)
+    # В данном примере предположим, что рассылаем по активным чатам из active_raids (для примера) или нужно добавить get_all_users
+    # Лучше добавить метод get_all_users_ids в database.py. 
+    # Пока сделаем простой SQL запрос прямо тут для скорости (хотя лучше в DB)
+    
+    users_count = 0
+    errors_count = 0
+    
+    # ! ВАЖНО: Для реальной рассылки лучше использовать db.get_all_users_ids()
+    # Сейчас возьмем ID из таблицы users
+    try:
+        async with db.execute("SELECT user_id FROM users") as cursor:
+             users = await cursor.fetchall()
+             
+        status_msg = await message.answer(f"⏳ Начинаю рассылку на {len(users)} пользователей...")
+        
+        for user_row in users:
+            user_id = user_row[0]
+            try:
+                await message.copy_to(chat_id=user_id)
+                users_count += 1
+                await asyncio.sleep(0.05) # Избегаем флуд-лимитов
+            except Exception:
+                errors_count += 1
+        
+        await status_msg.edit_text(f"✅ Рассылка завершена!\nОтправлено: {users_count}\nОшибок: {errors_count}")
+            
+    except Exception as e:
+        await message.answer(f"Ошибка БД: {e}")
+
+    await state.clear()
+
+# --- Callbacks: Выдача пива ---
+
+@admin_router.callback_query(AdminCallbackData.filter(F.action == "give_beer"), IsAdmin())
+async def cq_admin_give_beer(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("👤 Введите ID пользователя или перешлите его сообщение:")
+    await state.set_state(AdminStates.give_beer_user)
+    await callback.answer()
+
+@admin_router.message(AdminStates.give_beer_user, IsAdmin())
+async def process_give_beer_user(message: Message, state: FSMContext):
+    user_id = None
+    if message.forward_from:
+        user_id = message.forward_from.id
+    elif message.text.isdigit():
+        user_id = int(message.text)
+    
+    if not user_id:
+        await message.answer("⛔ Некорректный ID. Попробуйте снова.")
         return
 
-    if action not in ["settings", "events"]:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    
-    if action == "stats":
-        total_users = await db.get_total_users_count()
-        all_chats = await db.get_all_chat_ids()
-        await callback.message.answer(
-            f"<b>📊 Статистика бота</b>\n\n"
-            f"Всего пользователей: {total_users}\n"
-            f"Всего чатов: {len(all_chats)}",
-            parse_mode='HTML'
-        )
-    elif action == "broadcast":
-        await state.set_state(AdminStates.broadcast_message)
-        await callback.message.answer("Пожалуйста, отправьте сообщение для рассылки. Для отмены введите /cancel")
-    elif action == "give_beer":
-        await state.set_state(AdminStates.give_beer_user)
-        await callback.message.answer("Кому выдать пиво? Отправьте ID, @username или перешлите сообщение. Для отмены введите /cancel")
-    elif action == "settings":
-        text, keyboard = await get_settings_menu(settings)
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
-    elif action == "events":
-        text, keyboard = await get_events_menu()
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
+    await state.update_data(target_user_id=user_id)
+    await message.answer(f"🍺 Выбран User ID: <code>{user_id}</code>.\nВведите сумму (можно с минусом):", parse_mode='HTML')
+    await state.set_state(AdminStates.give_beer_amount)
 
-# --- Обработчики меню настроек ---
-@admin_router.callback_query(AdminSettingsCallbackData.filter(), IsAdmin())
-async def cq_admin_select_setting(callback: CallbackQuery, callback_data: AdminSettingsCallbackData, state: FSMContext, settings: SettingsManager):
-    await callback.answer()
-    setting_key = callback_data.setting_key
-    await state.update_data(setting_key=setting_key)
-    await state.set_state(AdminStates.waiting_for_setting_value)
-    
-    current_value = "N/A"
-    if hasattr(settings, setting_key):
-        current_value = getattr(settings, setting_key)
+@admin_router.message(AdminStates.give_beer_amount, IsAdmin())
+async def process_give_beer_amount(message: Message, state: FSMContext, db: Database):
+    try:
+        amount = int(message.text)
+        data = await state.get_data()
+        target_id = data['target_user_id']
         
-    await callback.message.edit_text(
-        f"Введите новое значение для <code>{setting_key}</code>.\n"
-        f"Текущее значение: <code>{current_value}</code>\n\n"
-        f"Для отмены введите /cancel.",
-        parse_mode='HTML',
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад к настройкам", callback_data=AdminCallbackData(action="settings").pack())]
-        ])
-    )
+        new_balance = await db.change_rating(target_id, amount)
+        await message.answer(f"✅ Баланс пользователя <code>{target_id}</code> изменен на {amount}.\nТекущий: {new_balance} 🍺", parse_mode='HTML')
+        await state.clear()
+    except ValueError:
+        await message.answer("⛔ Введите целое число.")
+
+# --- Callbacks: Настройки (Settings) ---
+
+@admin_router.callback_query(AdminCallbackData.filter(F.action == "settings"), IsAdmin())
+async def cq_admin_settings(callback: CallbackQuery, settings: SettingsManager):
+    text, kb = await get_settings_menu(settings)
+    with suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode='HTML')
+    await callback.answer()
+
+@admin_router.callback_query(AdminSettingsCallbackData.filter(), IsAdmin())
+async def cq_admin_edit_setting(callback: CallbackQuery, callback_data: AdminSettingsCallbackData, state: FSMContext):
+    key = callback_data.setting_key
+    await state.update_data(setting_key=key)
+    await callback.message.answer(f"✏️ Введите новое значение для <b>{key}</b> (целое число):", parse_mode='HTML')
+    await state.set_state(AdminStates.waiting_for_setting_value)
+    await callback.answer()
 
 @admin_router.message(AdminStates.waiting_for_setting_value, IsAdmin())
 async def process_setting_value(message: Message, state: FSMContext, db: Database, settings: SettingsManager):
-    if not message.text or not message.text.isdigit():
-        await message.reply("Ошибка. Введите целое число. Или /cancel.")
+    if not message.text.isdigit():
+        await message.answer("⛔ Значение должно быть числом!")
         return
-    new_value = int(message.text)
+        
+    value = int(message.text)
     data = await state.get_data()
-    setting_key = data.get('setting_key')
+    key = data['setting_key']
+    
+    await db.update_setting(key, value)
+    await settings.reload_setting(db, key)
+    
+    await message.answer(f"✅ Настройка <b>{key}</b> обновлена до <b>{value}</b>!", parse_mode='HTML')
     await state.clear()
     
-    try:
-        await db.update_setting(setting_key, new_value)
-        await settings.reload_setting(db, setting_key)
-        await message.answer(f"✅ Настройка '<code>{setting_key}</code>' обновлена на <code>{new_value}</code>.", parse_mode='HTML')
-        
-        text, keyboard = await get_settings_menu(settings)
-        await message.answer(text, reply_markup=keyboard, parse_mode='HTML')
-    except Exception as e:
-        await message.answer(f"Ошибка при обновлении: {e}")
+    # Возвращаем меню
+    text, kb = await get_settings_menu(settings)
+    await message.answer(text, reply_markup=kb, parse_mode='HTML')
 
-# --- Обработчики меню ивентов ---
-CHATS_PER_PAGE = 5
-
-@admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "menu"), IsAdmin())
-async def cq_raid_menu(callback: CallbackQuery, settings: SettingsManager):
-    await callback.answer()
-    text = settings.get_raid_settings_text()
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 ЗАПУСТИТЬ ИВЕНТ", callback_data=AdminRaidCallbackData(action="select_chat", page=0).pack())],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data=AdminCallbackData(action="events").pack())]
-    ])
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
-
-@admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "select_chat"), IsAdmin())
-async def cq_raid_select_chat(callback: CallbackQuery, callback_data: AdminRaidCallbackData, db: Database):
-    await callback.answer()
-    page = callback_data.page
-    
-    all_chats = await db.get_all_chats()
-    if not all_chats:
-        await callback.message.edit_text("Бот не состоит ни в одном чате.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data=AdminRaidCallbackData(action="menu").pack())]
-        ]))
-        return
-
-    start = page * CHATS_PER_PAGE
-    end = start + CHATS_PER_PAGE
-    chats_on_page = all_chats[start:end]
-
-    buttons = []
-    for chat_id, title in chats_on_page:
-        buttons.append([InlineKeyboardButton(text=title, callback_data=AdminRaidCallbackData(action="start", chat_id=chat_id).pack())])
-    
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data=AdminRaidCallbackData(action="select_chat", page=page-1).pack()))
-    if end < len(all_chats):
-        nav_buttons.append(InlineKeyboardButton(text="➡️", callback_data=AdminRaidCallbackData(action="select_chat", page=page+1).pack()))
-    
-    if nav_buttons: buttons.append(nav_buttons)
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=AdminRaidCallbackData(action="menu").pack())])
-
-    await callback.message.edit_text(f"В каком чате запустить ивент? (Стр. {page+1})", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-
-@admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "start"), IsAdmin())
-async def cq_raid_start(callback: CallbackQuery, callback_data: AdminRaidCallbackData, bot: Bot, db: Database, settings: SettingsManager):
-    chat_id = callback_data.chat_id
-    
-    if await db.get_active_raid(chat_id):
-        await callback.answer("В этом чате уже идет рейд!", show_alert=True)
-        return
-        
-    await callback.answer("Запускаю рейд...")
-    
-    try:
-        await start_raid_event(chat_id, bot, db, settings)
-        await callback.message.edit_text(f"✅ Ивент 'Вышибала' успешно запущен в чате (ID: {chat_id})!")
-    except Exception as e:
-        await callback.message.edit_text(f"❌ Не удалось запустить ивент в чате {chat_id}.\nОшибка: {e}")
-
-# --- Остальные админ-команды ---
-@admin_router.message(AdminStates.broadcast_message, IsAdmin())
-async def handle_broadcast_message(message: Message, state: FSMContext, bot: Bot, db: Database):
-    await state.clear()
-    await message.answer("Начинаю рассылку...")
-    user_ids = await db.get_all_user_ids()
-    chat_ids = await db.get_all_chat_ids()
-    success_users, failed_users = 0, 0
-    
-    for user_id in user_ids:
-        with suppress(TelegramBadRequest):
-            try:
-                await bot.copy_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
-                success_users += 1
-            except Exception:
-                failed_users += 1
-            await asyncio.sleep(0.05)
-            
-    success_chats, failed_chats = 0, 0
-    for chat_id in chat_ids:
-        with suppress(TelegramBadRequest):
-            try:
-                sent_message = await bot.copy_message(chat_id=chat_id, from_chat_id=message.chat.id, message_id=message.message_id)
-                try:
-                    await bot.pin_chat_message(chat_id=chat_id, message_id=sent_message.message_id)
-                except Exception as e:
-                    logging.warning(f"Не удалось закрепить сообщение в чате {chat_id}: {e}")
-                success_chats += 1
-            except Exception:
-                failed_chats += 1
-            await asyncio.sleep(0.05)
-            
-    await message.answer(
-        f"<b>📢 Рассылка завершена!</b>\n\n"
-        f"<b>Пользователи:</b>\n✅ Успешно: {success_users}\n❌ Неудачно: {failed_users}\n\n"
-        f"<b>Чаты:</b>\n✅ Успешно: {success_chats}\n❌ Неудачно: {failed_chats}",
-        parse_mode='HTML'
-    )
-
-@admin_router.message(AdminStates.give_beer_user, IsAdmin())
-async def process_give_beer_user(message: Message, state: FSMContext, db: Database):
-    target_id = None
-    if message.forward_from:
-        target_id = message.forward_from.id
-    elif message.text and message.text.startswith('@'):
-        target_id = await db.get_user_by_username(message.text)
-    elif message.text and message.text.isdigit():
-        target_id = int(message.text)
-    if not target_id or not await db.user_exists(target_id):
-        await message.reply("Пользователь не найден. Попробуйте снова или /cancel.")
-        return
-    await state.update_data(target_id=target_id)
-    await state.set_state(AdminStates.give_beer_amount)
-    await message.answer("Отлично. Теперь введите сумму (например, `100` или `-50`).")
-
-@admin_router.message(AdminStates.give_beer_amount, IsAdmin())
-async def process_give_beer_amount(message: Message, state: FSMContext, bot: Bot, db: Database):
-    if not message.text or not message.text.lstrip('-').isdigit():
-        await message.reply("Это не число. Введите сумму или /cancel.")
-        return
-    amount = int(message.text)
-    user_data = await state.get_data()
-    target_id = user_data.get('target_id')
-    await state.clear()
-    await db.change_rating(target_id, amount)
-    new_balance = await db.get_user_beer_rating(target_id)
-    await message.answer(
-        f"Баланс изменен!\nID: <code>{target_id}</code>\nИзменение: {amount:+} 🍺\nНовый баланс: {new_balance} 🍺",
-        parse_mode='HTML'
-    )
-    with suppress(TelegramBadRequest):
-        await bot.send_message(chat_id=target_id, text=f"⚙️ Администратор изменил ваш баланс на {amount:+} 🍺.")
-
-@admin_router.message(F.text.lower() == "бот выйди", IsAdmin())
-async def admin_leave_chat(message: Message, bot: Bot):
-    if message.chat.type in ['group', 'supergroup']:
-        await message.reply("Хорошо, слушаюсь...")
-        await bot.leave_chat(chat_id=message.chat.id)
-    else:
-        await message.reply("Эту команду можно использовать только в группах.")
-
-@admin_router.message(Command("settings"), IsAdmin())
-async def cmd_show_settings(message: Message, settings: SettingsManager):
-    text, keyboard = await get_settings_menu(settings)
-    await message.answer(text, reply_markup=keyboard, parse_mode='HTML')
-
+# --- КОМАНДЫ ДЛЯ ИЗМЕНЕНИЯ НАСТРОЕК (БЫСТРЫЕ) ---
 @admin_router.message(Command("set"), IsAdmin())
-async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: SettingsManager):
+async def cmd_set_setting(message: Message, db: Database, settings: SettingsManager):
     args = message.text.split()
-    
     if len(args) != 3:
-        await message.reply("Неверный формат. Используйте: <code>/set &lt;ключ&gt; &lt;значение&gt;</code>\n"
+        await message.reply("Использование: <code>/set <ключ> <значение></code>\n"
                             "Пример: <code>/set beer_cooldown 3600</code>\n\n"
                             "Доступные ключи:\n"
                             "<code>beer_cooldown, jackpot_chance, roulette_cooldown, "
@@ -376,4 +286,88 @@ async def cmd_set_setting(message: Message, bot: Bot, db: Database, settings: Se
         await message.answer(text, reply_markup=keyboard, parse_mode='HTML')
         
     except Exception as e:
-        await message.answer(f"Произошла ошибка при обновлении настройки: {e}")
+        await message.reply(f"Ошибка БД: {e}")
+
+# --- УПРАВЛЕНИЕ РЕЙДАМИ ---
+
+@admin_router.callback_query(AdminCallbackData.filter(F.action == "raids"), IsAdmin())
+async def cq_admin_raids_menu(callback: CallbackQuery, db: Database):
+    # Показываем список активных рейдов
+    active_raids = await db.get_all_active_raids() # List of tuples (chat_id,)
+    
+    text = f"👹 <b>Управление Рейдами</b>\nАктивных рейдов: {len(active_raids)}\n\nВыберите чат:"
+    
+    kb = []
+    for raid in active_raids:
+        chat_id = raid[0]
+        # Пытаемся получить название чата (если есть в БД или просто ID)
+        chat_title = f"Chat {chat_id}" 
+        # (В идеале нужно хранить названия чатов в БД, но пока так)
+        
+        kb.append([InlineKeyboardButton(
+            text=f"⚔️ {chat_title}", 
+            callback_data=AdminRaidCallbackData(action="manage", chat_id=chat_id).pack()
+        )])
+        
+    kb.append([InlineKeyboardButton(text="➕ Запустить в новом чате", callback_data=AdminRaidCallbackData(action="new").pack())])
+    kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=AdminCallbackData(action="main").pack())])
+    
+    with suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode='HTML')
+    await callback.answer()
+
+@admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "new"), IsAdmin())
+async def cq_admin_raid_new(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите ID чата, где нужно запустить рейд (бот должен быть админом):")
+    await state.set_state(AdminStates.select_raid_chat)
+    await callback.answer()
+
+@admin_router.message(AdminStates.select_raid_chat, IsAdmin())
+async def process_raid_chat_id(message: Message, state: FSMContext, bot: Bot, db: Database, settings: SettingsManager):
+    try:
+        chat_id = int(message.text)
+        # Пробуем запустить
+        await start_raid_event(chat_id, bot, db, settings)
+        await message.answer(f"✅ Рейд в чате {chat_id} инициирован!")
+    except ValueError:
+        await message.answer("⛔ ID должен быть числом.")
+    except Exception as e:
+        await message.answer(f"⛔ Ошибка запуска: {e}")
+    
+    await state.clear()
+
+@admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "manage"), IsAdmin())
+async def cq_admin_raid_manage(callback: CallbackQuery, callback_data: AdminRaidCallbackData, db: Database):
+    chat_id = callback_data.chat_id
+    raid = await db.get_active_raid(chat_id)
+    
+    if not raid:
+        await callback.answer("Рейд уже завершен или не найден.", show_alert=True)
+        return # Возврат в меню
+        
+    text = (
+        f"👹 <b>Рейд в чате {chat_id}</b>\n"
+        f"HP: {raid['boss_health']} / {raid['boss_max_health']}\n"
+        f"Награда: {raid['reward_pool']}\n"
+    )
+    
+    kb = [
+        [InlineKeyboardButton(text="☠️ Убить Босса (Завершить)", callback_data=AdminRaidCallbackData(action="kill", chat_id=chat_id).pack())],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data=AdminCallbackData(action="raids").pack())]
+    ]
+    
+    with suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode='HTML')
+    await callback.answer()
+
+@admin_router.callback_query(AdminRaidCallbackData.filter(F.action == "kill"), IsAdmin())
+async def cq_admin_raid_kill(callback: CallbackQuery, callback_data: AdminRaidCallbackData, db: Database):
+    chat_id = callback_data.chat_id
+    # Устанавливаем HP в 0
+    await db.update_raid_health(chat_id, 9999999)
+    # Логика завершения сработает сама при следующем ударе или обновлении, 
+    # но чтобы ускорить, можно вызвать функцию завершения (но она в game_raid).
+    # Просто оставим 0 HP, бот обновит статус.
+    
+    await callback.answer("✅ Босс убит (HP=0). Рейд завершится при следующем обновлении.")
+    await cq_admin_raids_menu(callback, db)
